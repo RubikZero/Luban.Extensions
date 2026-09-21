@@ -4,7 +4,7 @@ using MoonSharp.Interpreter;
 
 namespace Luban.ScriptValidator;
 
-/// <summary>Builds a plain, read-only Lua representation of Luban's loaded tables.</summary>
+/// <summary>Builds a deep, read-only Lua representation of Luban's loaded tables.</summary>
 internal sealed class LuaConfigData
 {
     private readonly Dictionary<string, List<Record>> _tables;
@@ -35,13 +35,13 @@ internal sealed class LuaConfigData
                 Table row = ToLuaBean(script, record.Data);
                 row.Set("__source", DynValue.NewString(record.Source ?? string.Empty));
                 row.Set("__autoIndex", DynValue.NewNumber(record.AutoIndex));
-                rows.Append(DynValue.NewTable(row));
+                rows.Append(ToReadOnlyTable(script, row));
             }
-            tableRegistry.Set(tableName, DynValue.NewTable(rows));
+            tableRegistry.Set(tableName, ToReadOnlyTable(script, rows));
         }
 
         Table cfg = new(script);
-        cfg.Set("tables", DynValue.NewTable(tableRegistry));
+        cfg.Set("tables", ToReadOnlyTable(script, tableRegistry));
         cfg.Set("table", DynValue.NewCallback((_, args) =>
         {
             string? tableName = args.Count > 0 ? args[0].CastToString() : null;
@@ -51,7 +51,7 @@ internal sealed class LuaConfigData
             }
             return tableRegistry.Get(tableName);
         }));
-        return cfg;
+        return ToReadOnlyTable(script, cfg).Table;
     }
 
     private static Table ToLuaBean(Script script, DBean bean)
@@ -85,7 +85,7 @@ internal sealed class LuaConfigData
             DString value => DynValue.NewString(value.Value),
             DEnum value => DynValue.NewString(value.StrValue),
             DDateTime value => DynValue.NewString(value.ToFormatString()),
-            DBean value => DynValue.NewTable(ToLuaBean(script, value)),
+            DBean value => ToReadOnlyTable(script, ToLuaBean(script, value)),
             DMap value => ToLuaMap(script, value),
             DArray value => ToLuaList(script, value.Datas),
             DList value => ToLuaList(script, value.Datas),
@@ -101,7 +101,7 @@ internal sealed class LuaConfigData
         {
             table.Append(ToLuaValue(script, value));
         }
-        return DynValue.NewTable(table);
+        return ToReadOnlyTable(script, table);
     }
 
     private static DynValue ToLuaMap(Script script, DMap map)
@@ -111,6 +111,52 @@ internal sealed class LuaConfigData
         {
             table.Set(ToLuaValue(script, key), ToLuaValue(script, value));
         }
-        return DynValue.NewTable(table);
+        return ToReadOnlyTable(script, table);
+    }
+
+    private static DynValue ToReadOnlyTable(Script script, Table source)
+    {
+        Table proxy = new(script);
+        Table metaTable = new(script);
+        metaTable.Set("__index", DynValue.NewTable(source));
+        metaTable.Set("__newindex", DynValue.NewCallback((_, _) =>
+            throw new ScriptRuntimeException("attempt to modify read-only configuration data")));
+        metaTable.Set("__len", DynValue.NewCallback((_, _) => DynValue.NewNumber(source.Length)));
+        metaTable.Set("__pairs", CreatePairsIterator(source));
+        metaTable.Set("__ipairs", CreateIpairsIterator(source));
+        metaTable.Set("__metatable", DynValue.NewString("read-only configuration data"));
+        proxy.MetaTable = metaTable;
+        return DynValue.NewTable(proxy);
+    }
+
+    private static DynValue CreatePairsIterator(Table source)
+    {
+        DynValue next = DynValue.NewCallback((_, args) =>
+        {
+            DynValue previousKey = args.Count > 1 ? args[1] : DynValue.Nil;
+            TablePair? pair = source.NextKey(previousKey);
+            return pair is null || pair.Value.Key.IsNil()
+                ? DynValue.Nil
+                : DynValue.NewTuple(pair.Value.Key, pair.Value.Value);
+        });
+
+        return DynValue.NewCallback((_, _) => DynValue.NewTuple(next, DynValue.Nil, DynValue.Nil));
+    }
+
+    private static DynValue CreateIpairsIterator(Table source)
+    {
+        DynValue next = DynValue.NewCallback((_, args) =>
+        {
+            int previousIndex = args.Count > 1 && args[1].Type == DataType.Number
+                ? (int)args[1].Number
+                : 0;
+            int nextIndex = previousIndex + 1;
+            DynValue value = source.Get(nextIndex);
+            return value.IsNil()
+                ? DynValue.Nil
+                : DynValue.NewTuple(DynValue.NewNumber(nextIndex), value);
+        });
+
+        return DynValue.NewCallback((_, _) => DynValue.NewTuple(next, DynValue.Nil, DynValue.NewNumber(0)));
     }
 }

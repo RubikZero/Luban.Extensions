@@ -72,6 +72,7 @@ public sealed class LuaScriptValidator : DataValidatorBase
     private void ExecuteScript(string scriptFile, LuaConfigData configData, List<string> failures)
     {
         Script script = new(CoreModules.Preset_SoftSandbox);
+        RemoveTableMutationApis(script);
         script.Globals["cfg"] = configData.CreateLuaTable(script);
         script.Globals["fail"] = DynValue.NewCallback((_, args) =>
         {
@@ -109,6 +110,24 @@ public sealed class LuaScriptValidator : DataValidatorBase
         catch (Exception exception)
         {
             failures.Add($"{scriptFile}: failed to execute script: {exception.Message}");
+        }
+    }
+
+    private static void RemoveTableMutationApis(Script script)
+    {
+        // A read-only proxy intercepts ordinary assignment. Remove the standard
+        // helpers which could otherwise bypass a proxy's __newindex metamethod.
+        script.Globals.Set("rawget", DynValue.Nil);
+        script.Globals.Set("rawset", DynValue.Nil);
+        script.Globals.Set("getmetatable", DynValue.Nil);
+        script.Globals.Set("setmetatable", DynValue.Nil);
+
+        DynValue tableLibraryValue = script.Globals.Get("table");
+        if (tableLibraryValue.Type == DataType.Table)
+        {
+            tableLibraryValue.Table.Set("insert", DynValue.Nil);
+            tableLibraryValue.Table.Set("remove", DynValue.Nil);
+            tableLibraryValue.Table.Set("sort", DynValue.Nil);
         }
     }
 

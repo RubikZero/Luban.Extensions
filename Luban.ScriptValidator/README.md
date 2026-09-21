@@ -63,9 +63,11 @@ Available globals:
 | `fail(message)` | Records a validation error and continues. |
 | `expect(condition, message)` | Records an error when the condition is false. |
 
-Bean fields are Lua tables; lists, arrays and sets are Lua arrays; maps are Lua
-tables. Enums are exposed as their configured item names. `long` and `datetime`
-are strings so Lua's double-based numbers do not lose precision.
+Bean fields are read-only Lua tables; lists, arrays and sets are read-only Lua
+arrays; maps are read-only Lua tables. An attempted assignment, `table.insert`,
+`table.remove`, or `table.sort` raises an error. Enums are exposed as their
+configured item names. `long` and `datetime` are strings so Lua's double-based
+numbers do not lose precision.
 
 The interpreter uses MoonSharp's soft sandbox. Rules receive only the `cfg`,
 `fail`, and `expect` APIs; file, process, network, CLR reflection, and package
