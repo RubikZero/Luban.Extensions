@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Shared deployment settings for every Luban extension project. Override
+      this from the command line when another Luban installation is required:
+      -p:LubanDir=D:\Tools\Luban
+    -->
+    <LubanDir Condition="'$(LubanDir)' == ''">D:\Workspace\WcDesignerDoc\luban\Tools\Luban</LubanDir>
+    <LubanExtensionDeployerProject>$(MSBuildThisFileDirectory)tools\Luban.Extension.Deployer\Luban.Extension.Deployer.csproj</LubanExtensionDeployerProject>
+    <!-- Avoid concurrent compiler-server startup failures when building all extensions. -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+</Project>

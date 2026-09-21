@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Luban.MultiRootPathValidator</AssemblyName>
+    <RootNamespace>Luban.MultiRootPathValidator</RootNamespace>
+    <IsLubanExtension>true</IsLubanExtension>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Build the deployer first when this extension is built through the solution. -->
+    <ProjectReference Include="..\tools\Luban.Extension.Deployer\Luban.Extension.Deployer.csproj"
+                      ReferenceOutputAssembly="false" />
+
+    <Reference Include="Luban.Core">
+      <HintPath>$(LubanDir)\Luban.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NLog">
+      <HintPath>$(LubanDir)\NLog.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
+

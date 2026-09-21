@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    An extension project opts in with IsLubanExtension=true. The C# deployer
+    receives the output DLL and takes care of copying it and registering it in
+    Luban.deps.json. Normal builds never deploy anything.
+  -->
+  <Target Name="DeployLubanExtension"
+          AfterTargets="Build"
+          Condition="'$(IsLubanExtension)' == 'true' and '$(DeployLubanExtensions)' == 'true'">
+    <Exec Command="dotnet run --project &quot;$(LubanExtensionDeployerProject)&quot; --configuration $(Configuration) --no-restore -- &quot;$(TargetPath)&quot; &quot;$(LubanDir)&quot;" />
+  </Target>
+</Project>

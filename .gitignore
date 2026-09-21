@@ -1,0 +1,26 @@
+# .NET build outputs
+[Bb]in/
+[Oo]bj/
+
+# IDE and user-specific files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test and coverage outputs
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Local deployment and temporary files
+*.tmp
+*.bak
+*.log
