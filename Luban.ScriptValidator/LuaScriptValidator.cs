@@ -1,46 +1,42 @@
-using Luban.Datas;
-using Luban.Defs;
-using Luban.Types;
+using Luban;
+using Luban.PostProcess;
 using Luban.Utils;
-using Luban.Validator;
 using MoonSharp.Interpreter;
 
 namespace Luban.ScriptValidator;
 
-/// <summary>
-/// An anchor validator which executes every Lua file in luaValidator.scriptDir once,
-/// after Luban has loaded all table data and before any data target is written.
-/// </summary>
-[Validator("lua", Priority = 100)]
-public sealed class LuaScriptValidator : DataValidatorBase
+/// <summary>Runs every Lua rule once as an explicitly enabled data postprocessor.</summary>
+[PostProcess("luaValidator", TargetFileType.DataExport, Priority = 100)]
+public sealed class LuaScriptPostProcessor : PostProcessBase
 {
     private const string OptionFamily = "luaValidator";
     private const string ScriptDirOption = "scriptDir";
-    private const string ExecutionKey = "luaValidator.executed";
+    private const string ExecutionKey = "luaValidator.postprocessExecuted";
 
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private readonly string[] _scriptDirectories;
 
-    public LuaScriptValidator()
+    public LuaScriptPostProcessor()
     {
         EnvManager.Current.TryGetOption(OptionFamily, ScriptDirOption, false, out string? rawDirectories);
         _scriptDirectories = ParseDirectories(rawDirectories);
     }
 
-    public override void Compile(DefField field, TType type)
+    public override void PostProcess(OutputFileManifest oldOutputFileManifest, OutputFileManifest newOutputFileManifest)
     {
-        if (!string.IsNullOrWhiteSpace(Args))
-        {
-            throw new ArgumentException($"field:{field} lua validator does not accept arguments. Configure -x {OptionFamily}.{ScriptDirOption}=<directory> instead.");
-        }
+        ExecuteOnce();
     }
 
-    public override void Validate(DataValidatorContext ctx, TType type, DType data)
+    public override void PostProcess(OutputFileManifest oldOutputFileManifest, OutputFileManifest newOutputFileManifest, OutputFile outputFile)
+    {
+        ExecuteOnce();
+    }
+
+    private void ExecuteOnce()
     {
         if (_scriptDirectories.Length == 0)
         {
-            WarnMissingDirectoryOnce();
-            return;
+            throw new InvalidOperationException($"Lua validation requires -x {OptionFamily}.{ScriptDirOption}=<directory>.");
         }
 
         if (GenerationContext.Current.GetOrAddUniqueObject(ExecutionKey, () => this) != this)
@@ -51,8 +47,7 @@ public sealed class LuaScriptValidator : DataValidatorBase
         List<string> scriptFiles = GetScriptFiles();
         if (scriptFiles.Count == 0)
         {
-            Logger.Warn("No Lua rule files (*.lua) were found in: {0}", string.Join(", ", _scriptDirectories));
-            return;
+            throw new InvalidOperationException($"No Lua rule files (*.lua) were found in: {string.Join(", ", _scriptDirectories)}");
         }
 
         LuaConfigData configData = LuaConfigData.Create(GenerationContext.Current);
@@ -65,7 +60,11 @@ public sealed class LuaScriptValidator : DataValidatorBase
         foreach (string failure in failures)
         {
             Logger.Error("[lua validator] {0}", failure);
-            GenerationContext.Current.LogValidatorFail(this);
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException($"Lua validation failed with {failures.Count} error(s).");
         }
     }
 
@@ -138,9 +137,7 @@ public sealed class LuaScriptValidator : DataValidatorBase
         {
             if (!Directory.Exists(directory))
             {
-                Logger.Error("Lua validation rule directory does not exist: {0}", directory);
-                GenerationContext.Current.LogValidatorFail(this);
-                continue;
+                throw new DirectoryNotFoundException($"Lua validation rule directory does not exist: {directory}");
             }
 
             files.AddRange(Directory.EnumerateFiles(directory, "*.lua", SearchOption.AllDirectories));
@@ -148,14 +145,6 @@ public sealed class LuaScriptValidator : DataValidatorBase
 
         files.Sort(StringComparer.OrdinalIgnoreCase);
         return files;
-    }
-
-    private void WarnMissingDirectoryOnce()
-    {
-        if (GenerationContext.Current.GetOrAddUniqueObject("luaValidator.missingScriptDirWarning", () => this) == this)
-        {
-            Logger.Warn("Lua validation is disabled because -x {0}.{1}=<directory> was not supplied.", OptionFamily, ScriptDirOption);
-        }
     }
 
     private static string[] ParseDirectories(string? rawDirectories)

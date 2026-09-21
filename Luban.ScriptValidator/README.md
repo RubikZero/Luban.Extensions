@@ -18,26 +18,23 @@ in `Luban.deps.json`.
 
 ## Enable Lua validation
 
-Add `#lua` to one field that is guaranteed to have data in every export. This is
-only an anchor: the field value itself is not inspected. For example:
-
-```xml
-<var name="id" type="int#lua"/>
-```
-
-Then add the rule directory to the Luban command:
+Add the postprocessor name and rule directory to the Luban command:
 
 ```bat
+-x dataPostprocess=luaValidator ^
 -x luaValidator.scriptDir=..\Rules\ConfigValidation
 ```
 
 Multiple directories can be separated by `;`. Relative directories are resolved
 from the current working directory of the Luban command. Every `*.lua` file is
-loaded recursively in deterministic path order.
+loaded recursively in deterministic path order. A data target (`-d bin`, `-d
+json`, and so on) must be present, as is already the case for ordinary exports.
 
-Lua rules run after Luban has loaded all table data and during validation, before
-any data target is saved. Pass `--validationFailAsError` so Lua failures cause a
-non-zero Luban exit code.
+Lua rules run after Luban has loaded all table data and after data targets have
+been assembled, but before `OutputSaver` writes generated files. A missing rule
+directory, an invalid Lua script, or any `fail` / `expect` failure throws an
+export error and stops Luban with a non-zero exit code. No `#lua` schema tag or
+`--validationFailAsError` dependency is required for Lua failures.
 
 ## Rule API
 
