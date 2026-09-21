@@ -7,6 +7,6 @@
   <Target Name="DeployLubanExtension"
           AfterTargets="Build"
           Condition="'$(IsLubanExtension)' == 'true' and '$(DeployLubanExtensions)' == 'true'">
-    <Exec Command="dotnet run --project &quot;$(LubanExtensionDeployerProject)&quot; --configuration $(Configuration) --no-restore -- &quot;$(TargetPath)&quot; &quot;$(LubanDir)&quot;" />
+    <Exec Command="dotnet run --project &quot;$(LubanExtensionDeployerProject)&quot; --configuration $(Configuration) --no-restore -- &quot;$(TargetPath)&quot; &quot;$(LubanDir)&quot; @(LubanExtensionDependency->'&quot;%(FullPath)&quot;', ' ')" />
   </Target>
 </Project>

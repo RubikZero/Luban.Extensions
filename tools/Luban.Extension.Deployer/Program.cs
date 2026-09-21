@@ -6,20 +6,14 @@ return Deploy(args);
 
 static int Deploy(string[] args)
 {
-    if (args.Length != 2)
+    if (args.Length < 2)
     {
-        Console.Error.WriteLine("Usage: Luban.Extension.Deployer <extension.dll> <Luban directory>");
+        Console.Error.WriteLine("Usage: Luban.Extension.Deployer <extension.dll> <Luban directory> [dependency.dll ...]");
         return 1;
     }
 
     string extensionDll = Path.GetFullPath(args[0]);
     string lubanDir = Path.GetFullPath(args[1]);
-    if (!File.Exists(extensionDll))
-    {
-        Console.Error.WriteLine($"Extension DLL was not found: {extensionDll}");
-        return 1;
-    }
-
     if (!Directory.Exists(lubanDir))
     {
         Console.Error.WriteLine($"Luban directory was not found: {lubanDir}");
@@ -33,20 +27,47 @@ static int Deploy(string[] args)
         return 1;
     }
 
-    AssemblyName assembly = AssemblyName.GetAssemblyName(extensionDll);
-    string assemblyName = assembly.Name ?? throw new InvalidOperationException("The extension assembly has no name.");
-    string assemblyVersion = assembly.Version?.ToString() ?? "1.0.0.0";
-    string libraryName = $"{assemblyName}/{assemblyVersion}";
+    string[] assemblies = args
+        .Skip(2)
+        .Prepend(extensionDll)
+        .Select(Path.GetFullPath)
+        .Distinct(GetPathComparer())
+        .ToArray();
 
-    string destinationDll = Path.Combine(lubanDir, Path.GetFileName(extensionDll));
-    File.Copy(extensionDll, destinationDll, overwrite: true);
+    foreach (string assemblyPath in assemblies)
+    {
+        if (!File.Exists(assemblyPath))
+        {
+            Console.Error.WriteLine($"Extension DLL was not found: {assemblyPath}");
+            return 1;
+        }
+    }
 
-    bool manifestChanged = RegisterExtension(manifestPath, libraryName, assemblyName, assemblyVersion);
-    Console.WriteLine($"Deployed: {destinationDll}");
+    bool manifestChanged = false;
+    foreach (string assemblyPath in assemblies)
+    {
+        AssemblyName assembly = AssemblyName.GetAssemblyName(assemblyPath);
+        string assemblyName = assembly.Name ?? throw new InvalidOperationException("The extension assembly has no name.");
+        string assemblyVersion = assembly.Version?.ToString() ?? "1.0.0.0";
+        string libraryName = $"{assemblyName}/{assemblyVersion}";
+        string destinationDll = Path.Combine(lubanDir, Path.GetFileName(assemblyPath));
+
+        File.Copy(assemblyPath, destinationDll, overwrite: true);
+        manifestChanged |= RegisterExtension(manifestPath, libraryName, assemblyName, assemblyVersion);
+        Console.WriteLine($"Deployed: {destinationDll}");
+    }
+
     Console.WriteLine(manifestChanged
         ? $"Registered extension in: {manifestPath}"
-        : "Extension is already registered; Luban.deps.json was left unchanged.");
+        : "Extensions are already registered; Luban.deps.json was left unchanged.");
     return 0;
+}
+
+static StringComparer GetPathComparer()
+{
+    return OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 }
 
 static bool RegisterExtension(string manifestPath, string libraryName, string assemblyName, string assemblyVersion)
