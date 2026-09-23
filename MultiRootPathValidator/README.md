@@ -12,7 +12,7 @@ With the .NET 8 Luban build, the extension must also be listed in `Luban.deps.js
 
 ## Requirements
 
-- Luban built for .NET 8 (verified against Luban 4.5.0)
+- Luban built for .NET 8 (verified against Luban 4.5.0 and 5.1.0)
 - .NET 8 SDK to build this extension
 - `Luban.Core.dll` and `NLog.dll` in the Luban executable directory
 

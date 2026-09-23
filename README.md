@@ -19,8 +19,9 @@ Every project directory has its own readme, in English and Chinese.
 
 ## How Luban loads an extension
 
-Verified against Luban 4.5.0; the same scan-and-register mechanism is present in
-the 4.x and 5.x lines.
+Verified against Luban 4.5.0. The same mechanism is present in 5.x, and both
+extensions compile unchanged against either line — see
+[Luban version support](#luban-version-support).
 
 1. Luban scans `*.dll` next to `Luban.dll` — **top directory only** — and loads
    every file whose name contains `Luban`.
@@ -38,11 +39,38 @@ whose name does *not* contain `Luban` — MoonSharp, in `Luban.ScriptValidator` 
 must be copied into the Luban directory and registered in `Luban.deps.json` too,
 because the file-name scan will never find it.
 
+## Luban version support
+
+Both extensions compile **unchanged** against Luban 4.5.0 and 5.1.0. That is
+measured, not assumed: the sources were compiled against `Luban.Core` built from
+each tag, and the solution builds cleanly against both.
+
+Everything this repository depends on is the same in the two lines — the behaviour
+registry and its priority rules, `IDataValidator` and `DataValidatorBase`,
+`PostProcessBase` and `PostProcessAttribute`, the `DefTable` index model including
+`IndexInfo`, `TypeTemplateExtension`, and the plugin discovery rules. The
+remaining differences are either additive (new type members) or internal (error
+messages moved into a localizable catalog, the launcher singleton replaced by
+`PipelineScope`).
+
+Two things change on the Luban side when you move to 5.x. Neither touches this
+repository, but both can affect your own setup:
+
+- the CLI flag `--validationFailAsError` became `--strict`, so check your launch
+  scripts;
+- manager properties such as `EnvManager.Current` and `GenerationContext.Current`
+  now throw outside an active `PipelineScope`. That never happens under
+  `Luban.dll`, but a host that drives Luban programmatically has to enter a scope
+  first.
+
+Because the build is pinned to `LUBAN_VERSION`, upgrading is a matter of changing
+that one value once your Luban installation has been upgraded.
+
 ## Requirements
 
 - .NET 8 SDK
-- A Luban installation built for .NET 8 (verified against Luban 4.5.0), containing
-  `Luban.Core.dll`, `NLog.dll` and `Luban.deps.json`
+- A Luban installation built for .NET 8 (4.5.0 and 5.1.0 are both supported),
+  containing `Luban.Core.dll`, `NLog.dll` and `Luban.deps.json`
 
 ## Setup
 

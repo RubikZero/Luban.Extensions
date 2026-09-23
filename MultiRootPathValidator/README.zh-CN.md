@@ -12,7 +12,7 @@ Luban 会扫描自身可执行文件所在目录下文件名包含 `Luban` 的 D
 
 ## 环境要求
 
-- 面向 .NET 8 构建的 Luban（已针对 Luban 4.5.0 验证）
+- 面向 .NET 8 构建的 Luban（已针对 Luban 4.5.0 与 5.1.0 验证）
 - 构建本扩展需要 .NET 8 SDK
 - Luban 可执行文件目录下存在 `Luban.Core.dll` 与 `NLog.dll`
 

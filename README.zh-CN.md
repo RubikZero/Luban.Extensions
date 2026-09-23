@@ -16,7 +16,7 @@
 
 ## Luban 如何加载扩展
 
-已针对 Luban 4.5.0 验证；4.x 与 5.x 各版本中都存在这套「扫描 + 注册」机制。
+已针对 Luban 4.5.0 验证。5.x 中同样是这套机制，且两个扩展在两条线上都能**零改动编译**——见 [Luban 版本支持](#luban-版本支持)。
 
 1. Luban 扫描 `Luban.dll` 同级目录下的 `*.dll`（**仅顶层目录，不递归**），加载其中文件名包含 `Luban` 的全部文件。
 2. 在这些程序集里，只有带 `[assembly: RegisterBehaviour]` 的才会被扫描自定义行为。
@@ -25,10 +25,23 @@
 
 由此产生两条对本仓库的硬约束：扩展程序集必须命名为 `Luban.*.dll` 且带 `[assembly: RegisterBehaviour]`；而**文件名不含 `Luban`** 的托管依赖（例如 `Luban.ScriptValidator` 用到的 MoonSharp）必须一并拷贝进 Luban 目录并登记到 `Luban.deps.json`——按文件名的扫描永远找不到它。
 
+## Luban 版本支持
+
+两个扩展对 Luban 4.5.0 与 5.1.0 都能**零改动编译**。这是实测结论而非推断：源码分别对着两个 tag 构建出的 `Luban.Core` 各编译了一遍，解决方案对两者都干净通过。
+
+本仓库依赖的全部内容在两条线上都一致——行为注册表及其优先级规则、`IDataValidator` 与 `DataValidatorBase`、`PostProcessBase` 与 `PostProcessAttribute`、`DefTable` 的索引模型（含 `IndexInfo`）、`TypeTemplateExtension`，以及插件发现规则。其余差异要么是纯追加（新增类型成员），要么是内部改动（错误文案移入可本地化的消息表、启动器单例改为 `PipelineScope`）。
+
+升级到 5.x 时，Luban 侧有两处变化。它们都不影响本仓库，但可能影响你自己的环境：
+
+- 命令行参数 `--validationFailAsError` 改名为 `--strict`，请检查你的启动脚本；
+- `EnvManager.Current`、`GenerationContext.Current` 这类管理器属性在没有活动 `PipelineScope` 时会**抛异常**。通过 `Luban.dll` 运行时永远不会遇到，但以编程方式驱动 Luban 的宿主必须先进入 scope。
+
+由于构建固定使用 `LUBAN_VERSION`，等你的 Luban 安装升级完成后，升级本扩展只是改这一个值。
+
 ## 环境要求
 
 - .NET 8 SDK
-- 面向 .NET 8 构建的 Luban（已针对 Luban 4.5.0 验证），且安装目录下存在 `Luban.Core.dll`、`NLog.dll` 与 `Luban.deps.json`
+- 面向 .NET 8 构建的 Luban（4.5.0 与 5.1.0 均支持），且安装目录下存在 `Luban.Core.dll`、`NLog.dll` 与 `Luban.deps.json`
 
 ## 初始化
 
