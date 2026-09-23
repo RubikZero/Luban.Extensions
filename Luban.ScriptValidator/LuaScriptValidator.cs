@@ -128,6 +128,11 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
             tableLibraryValue.Table.Set("remove", DynValue.Nil);
             tableLibraryValue.Table.Set("sort", DynValue.Nil);
         }
+
+        // MoonSharp's soft sandbox also enables the CLR interop module
+        // (dynamic.eval / dynamic.prepare), which can evaluate expressions at run
+        // time. Rules only need cfg, fail and expect.
+        script.Globals.Set("dynamic", DynValue.Nil);
     }
 
     private List<string> GetScriptFiles()
