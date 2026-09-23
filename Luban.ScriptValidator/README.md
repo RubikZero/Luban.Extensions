@@ -1,12 +1,16 @@
 # Luban.ScriptValidator
 
+**English** | [简体中文](README.zh-CN.md) | [← Repository readme](../README.md)
+
 `Luban.ScriptValidator` runs Lua validation rules against all configuration tables
 already loaded by Luban. It is a stable extension DLL; rules are ordinary `.lua`
 files and take effect on the next export without rebuilding the DLL.
 
 ## Installation
 
-Build and deploy every extension:
+Create the untracked `Directory.Build.props` from `Directory.Build.props.example`
+and point `LubanDir` at your Luban installation, as described in the
+[repository readme](../README.md#setup). Then build and deploy every extension:
 
 ```powershell
 dotnet build .\Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
@@ -63,14 +67,14 @@ Available globals:
 | `cfg.enumName("<type>", "<text>")` | Item name of that enum item, or `nil`. |
 | `cfg.enumItem("<type>", "<text>")` | `{ name, value, alias, comment }` of that enum item, or `nil`. |
 | `cfg.enumItems("<type>")` | Array of `{ name, value, alias, comment }` for every item of the enum. |
-| `cfg.enums.<type>.<ITEM>` | Pre-built enum constant table, e.g. `cfg.enums.MissionType.Main == 1`. |
+| `cfg.enums.<type>.<ITEM>` | Pre-built enum constant table, e.g. `cfg.enums.ELevelType.Elite == 2`. |
 | `cfg.ref(row, "<field>")` | Row referenced by a field declared with `#ref`, or `nil`. |
 | `cfg.ref("<table>", key)` | Row whose primary key is `key`, or `nil`. |
 | `cfg.keyed("<table>")` | Read-only map of primary key to row, or `nil` when the table has no single-field key. |
 | `cfg.tableInfo("<table>")` | `{ name, fullName, mode, index, indexFields, keyType, count, loaded, keyed }`. |
 | `row.__source` | Luban source file location for the row. |
 | `row.__autoIndex` | Luban record index. |
-| `row.__type` | Concrete bean type, e.g. `gametb.MissionStat`. |
+| `row.__type` | Concrete bean type, e.g. `game.Level`. |
 | `fail(message)` | Records a validation error and continues. |
 | `expect(condition, message)` | Records an error when the condition is false. |
 
@@ -82,8 +86,8 @@ therefore injects a **constant table for every enum into every script**, so a
 rule can use enum values directly without defining anything:
 
 ```lua
-for _, row in ipairs(cfg.table("TbMissionStat")) do
-    if cfg.enumValue("MissionType", row.mission_type) == cfg.enums.MissionType.Main then
+for _, row in ipairs(cfg.table("TbLevel")) do
+    if cfg.enumValue("ELevelType", row.level_type) == cfg.enums.ELevelType.Elite then
         -- ...
     end
 end
@@ -91,30 +95,30 @@ end
 
 The constant table is keyed by **item name and by item alias**, both mapping to
 the numeric value, and it is reachable under every type-name spelling — so
-`cfg.enums.MissionType.Main`, `cfg.enums["gametb.MissionType"].Main` and
-`cfg.enums.MissionType["主线任务"]` are all `1`, and the three lookups return the
-same table. On a name/alias collision the item name wins. The tables are
-read-only, and an unknown type name yields `nil`.
+`cfg.enums.ELevelType.Elite`, `cfg.enums["game.ELevelType"].Elite` and
+`cfg.enums.ELevelType["精英"]` all resolve to the same number, and the three
+lookups return the same table. On a name/alias collision the item name wins. The
+tables are read-only, and an unknown type name yields `nil`.
 
 Use `cfg.enumItems("<type>")` when you need the item metadata rather than the
 value — for example to check that every item is reachable from somewhere:
 
 ```lua
-for _, item in ipairs(cfg.enumItems("MissionType")) do
+for _, item in ipairs(cfg.enumItems("ELevelType")) do
     print(item.name, item.value, item.alias, item.comment)
 end
 ```
 
 Enum type names accept both spellings, with and without the top module
-(`gametb.MissionType` and `MissionType`). Unresolvable input is never an error:
-an unknown text, an unknown type name, or a type that is not an enum all return
+(`game.ELevelType` and `ELevelType`). Unresolvable input is never an error: an
+unknown text, an unknown type name, or a type that is not an enum all return
 `nil`, so a rule can assert on it directly:
 
 ```lua
-expect(cfg.enumValue("MissionType", row.mission_type) ~= nil,
-    string.format("%s: unknown mission_type '%s'", row.__source, row.mission_type))
+expect(cfg.enumValue("ELevelType", row.level_type) ~= nil,
+    string.format("%s: unknown level_type '%s'", row.__source, row.level_type))
 
-if cfg.enumValue("MissionType", row.mission_type) == cfg.enumValue("MissionType", "Main") then
+if cfg.enumValue("ELevelType", row.level_type) == cfg.enumValue("ELevelType", "Elite") then
     -- ...
 end
 ```
@@ -123,10 +127,10 @@ end
 
 ```lua
 -- Follow the field's own #ref declaration (scalar and collection refs).
-local item = cfg.ref(row, "item_id")
+local reward = cfg.ref(row, "reward_id")
 
 -- Look a row up directly by table name and primary key.
-local row = cfg.ref("gametb.TbItem", 10001)
+local item = cfg.ref("TbItem", 10001)
 ```
 
 - Only fields that actually declare `#ref` resolve in the first form; any other
@@ -137,8 +141,8 @@ local row = cfg.ref("gametb.TbItem", 10001)
   fields arrive in Lua as strings.
 - Only tables included in the current export target can be resolved, because
   that is all the data Luban loaded.
-- The returned row is the **same object** as in `cfg.table(...)`, so
-  `cfg.ref("TbItem", id) == cfg.table("TbItem")[1]` works as expected.
+- The returned row is the **same object** as the one in `cfg.tables.X`, so a rule
+  can compare rows by identity with `==` instead of comparing keys.
 
 ### Looking rows up by primary key
 
@@ -149,17 +153,15 @@ silently return an unrelated row if an integer key happened to fall inside
 the `DataMap` of Luban's generated code:
 
 ```lua
-local levels = cfg.keyed("TbGameLevel")   -- built on first use, then cached
+local levels = cfg.keyed("TbLevel")   -- built on first use, then cached
 
-for _, row in ipairs(cfg.tables.TbMissionStat) do
-    if cfg.enumValue("Requirement", row.needed_rec_type) == cfg.enums.Requirement.GameLevelCompletedStat then
-        expect(levels[tonumber(row.parameter)] ~= nil,
-            string.format("%s: 参数 %s 不是存在的关卡ID", row.__source, row.parameter))
-    end
+for _, row in ipairs(cfg.tables.TbMission) do
+    expect(levels[tonumber(row.level_id)] ~= nil,
+        string.format("%s: level_id %s does not exist", row.__source, row.level_id))
 end
 ```
 
-Both `levels[100005]` and `levels["100005"]` resolve, because `long` keys reach
+Both `levels[10001]` and `levels["10001"]` resolve, because `long` keys reach
 Lua as strings. `cfg.keyed` returns `nil`, and logs one warning, for a table
 without a single-field primary key (list and singleton tables) or for a table
 outside the current export target. Rows returned this way are the same objects as
@@ -169,12 +171,12 @@ in `cfg.tables.X`.
 way to find out why a lookup returns `nil`:
 
 ```lua
-local info = cfg.tableInfo("TbGameLevel")
+local info = cfg.tableInfo("TbLevel")
 -- info.mode        -> "map" | "list" | "one"
--- info.index       -> "levelid"
--- info.indexFields -> { "levelid" }
+-- info.index       -> "id"
+-- info.indexFields -> { "id" }
 -- info.keyType     -> "int"
--- info.count       -> 52
+-- info.count       -> 128
 -- info.loaded      -> true
 -- info.keyed       -> true
 ```
@@ -189,8 +191,8 @@ Four rules explain almost every surprise:
 
 - **Field names are the raw schema names** — exactly the names declared in
   `__beans__.xlsx` or in `<var name="...">`, in the spelling the schema uses
-  (`mission_type`, `needed_rec_type`, `ItemId`, `Count`). They are **not** the
-  names in the generated C# code. Reading a field that does not exist yields
+  (`level_type`, `reward_id`, or `ItemId`). They are **not** the names in the
+  generated C# code. Reading a field that does not exist yields
   `nil` instead of raising an error, so a typo looks exactly like a missing
   value.
 - **A single bean row must be walked with `pairs`, not `ipairs`.** A bean row has
@@ -198,8 +200,8 @@ Four rules explain almost every surprise:
   iterates **zero** times. `ipairs` is correct for the row list itself
   (`cfg.table("TbLevel")`), which is a real array.
 - **Enum fields hold the text written in the sheet**, which is either the item
-  name or the item alias. A cell showing `主线任务` reads as the string
-  `"主线任务"` in Lua even though the item name is `Main`. Pass it through
+  name or the item alias. A cell showing `精英` reads as the string `"精英"` in
+  Lua even though the item name is `Elite`. Pass it through
   `cfg.enumValue` / `cfg.enumName` to compare it reliably.
 - **`long` and `datetime` are strings** so Lua's double-based numbers do not lose
   precision. Compare them with strings, not with numbers.
@@ -214,3 +216,8 @@ only `clock` / `date` / `difftime` / `time`, and the mutation helpers that could
 bypass the read-only proxies (`rawget`, `rawset`, `getmetatable`, `setmetatable`,
 `table.insert`, `table.remove`, `table.sort`) are removed. MoonSharp's CLR
 interop module is removed as well, so `dynamic` is `nil`.
+
+## License
+
+This extension is MIT licensed, like the rest of the repository — see the
+[repository license](../LICENSE).

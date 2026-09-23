@@ -1,0 +1,132 @@
+# Luban.Extensions
+
+**English** | [简体中文](README.zh-CN.md)
+
+Extensions for [Luban](https://github.com/focus-creative-games/luban), the game
+configuration tool. Luban validates Excel/XML configuration data against a schema
+and then exports data plus generated code; this repository adds behaviour it does
+not ship with, as plugins that load into an unmodified Luban installation.
+
+## Projects
+
+Every project directory has its own readme, in English and Chinese.
+
+| Directory | What it adds | Readme |
+| --- | --- | --- |
+| [`MultiRootPathValidator/`](MultiRootPathValidator) | Replaces the built-in `path` validator so an asset path may live under any of several project roots. | [English](MultiRootPathValidator/README.md) · [简体中文](MultiRootPathValidator/README.zh-CN.md) |
+| [`Luban.ScriptValidator/`](Luban.ScriptValidator) | Runs Lua validation rules over the loaded tables, with helpers for enums, `#ref` lookups and primary-key lookups. | [English](Luban.ScriptValidator/README.md) · [简体中文](Luban.ScriptValidator/README.zh-CN.md) |
+| [`tools/Luban.Extension.Deployer/`](tools/Luban.Extension.Deployer) | Copies a built extension into a Luban installation and registers it in `Luban.deps.json`. | [English](tools/Luban.Extension.Deployer/README.md) · [简体中文](tools/Luban.Extension.Deployer/README.zh-CN.md) |
+
+## How Luban loads an extension
+
+Verified against Luban 4.5.0; the same scan-and-register mechanism is present in
+the 4.x and 5.x lines.
+
+1. Luban scans `*.dll` next to `Luban.dll` — **top directory only** — and loads
+   every file whose name contains `Luban`.
+2. Of those assemblies, only the ones marked `[assembly: RegisterBehaviour]` are
+   scanned for behaviours.
+3. Behaviours are registered by *type* and *name*. Two behaviours sharing both are
+   resolved by `Priority`, the higher one winning — which is how an extension
+   replaces a built-in such as the `path` validator without patching Luban.
+4. With the .NET 8 build the assembly must also be listed in `Luban.deps.json`;
+   otherwise the runtime cannot resolve a plugin that was discovered by file name.
+
+Two consequences shape this repository. An extension assembly must be named
+`Luban.*.dll` and carry `[assembly: RegisterBehaviour]`. And a managed dependency
+whose name does *not* contain `Luban` — MoonSharp, in `Luban.ScriptValidator` —
+must be copied into the Luban directory and registered in `Luban.deps.json` too,
+because the file-name scan will never find it.
+
+## Requirements
+
+- .NET 8 SDK
+- A Luban installation built for .NET 8 (verified against Luban 4.5.0), containing
+  `Luban.Core.dll`, `NLog.dll` and `Luban.deps.json`
+
+## Setup
+
+`LubanDir` — the path to your Luban installation — lives in
+`Directory.Build.props`, which is **not tracked by git** so that every machine
+keeps its own. Create it once from the example:
+
+```powershell
+Copy-Item Directory.Build.props.example Directory.Build.props
+# then edit LubanDir in the copy
+```
+
+Everything else the build needs is machine-independent and stays in the tracked
+`Directory.Build.targets`.
+
+You can also skip the file entirely and pass the path on the command line, which
+is what CI should do:
+
+```powershell
+dotnet build Luban.Extensions.sln -c Release -p:LubanDir="C:\path\to\luban\Tools\Luban"
+```
+
+## Build
+
+A normal build compiles everything and deploys **nothing**:
+
+```powershell
+dotnet build Luban.Extensions.sln -c Release -m:1
+```
+
+Deployment is opt-in. It builds the solution and, for every project that sets
+`IsLubanExtension=true`, copies the output DLL into `LubanDir` and registers it in
+`Luban.deps.json`:
+
+```powershell
+dotnet build Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
+```
+
+The deployer writes only the extension DLLs and the matching `Luban.deps.json`
+entries. It never creates a per-extension `.deps.json`, never removes files, and
+leaves the manifest byte-for-byte unchanged when an extension is already
+registered. Failures are reported as ordinary build errors with exit code 1.
+
+Note that deployment targets a Luban installation, which is normally a separate
+repository, so a build with `-p:DeployLubanExtensions=true` modifies that working
+tree.
+
+## Adding an extension
+
+1. Create the project with `<AssemblyName>Luban.<Something></AssemblyName>` and
+   `<IsLubanExtension>true</IsLubanExtension>`.
+2. Add an `AssemblyInfo.cs` containing `using Luban;` and
+   `[assembly: RegisterBehaviour]`.
+3. Reference `Luban.Core.dll` from `$(LubanDir)` with `<Private>false</Private>`
+   so Luban's own assemblies are never shipped alongside the extension.
+4. Add the behaviour class, decorated with the attribute that matches the
+   extension point (`[Validator(...)]`, `[PostProcess(...)]`, and so on), with an
+   explicit `Priority` when it is meant to replace a built-in.
+5. Add the project to `Luban.Extensions.sln`.
+6. Build with `-p:DeployLubanExtensions=true`.
+
+Extra managed dependencies are declared as `LubanExtensionDependency` items so the
+deployer copies and registers them as well; see
+[`Luban.ScriptValidator.csproj`](Luban.ScriptValidator/Luban.ScriptValidator.csproj)
+for the MoonSharp example.
+
+## Repository layout
+
+```text
+Directory.Build.props.example    Template for the untracked machine-local paths
+Directory.Build.targets          Tracked, machine-independent build settings
+LICENSE                          MIT license of this repository
+Luban.Extensions.sln             Solution containing every project
+MultiRootPathValidator/          Luban.MultiRootPathValidator
+Luban.ScriptValidator/           Luban.ScriptValidator
+tools/Luban.Extension.Deployer/  Copies built extensions and registers them
+```
+
+## License
+
+This project is [MIT licensed](LICENSE).
+
+The path-pattern behaviour in `MultiRootPathValidator` is adapted from
+[Luban](https://github.com/focus-creative-games/luban), which is MIT licensed as
+well. Luban's license text and copyright notice are kept next to that code, in
+[`MultiRootPathValidator/LICENSE.Luban`](MultiRootPathValidator/LICENSE.Luban), as
+the MIT terms require.

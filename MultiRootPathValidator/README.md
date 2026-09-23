@@ -1,5 +1,7 @@
 # Luban.MultiRootPathValidator
 
+**English** | [简体中文](README.zh-CN.md) | [← Repository readme](../README.md)
+
 A drop-in extension for Luban's built-in `path` validator. It keeps the existing validator syntax (`path=unity`, `path=normal;...`, etc.) but allows validation against multiple project/resource roots.
 
 ## Why this works
@@ -21,16 +23,18 @@ the repository root. It builds every extension in the solution and deploys
 each extension project that opts in with `IsLubanExtension=true`:
 
 ```powershell
-dotnet build ..\Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
+dotnet build Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
 ```
 
-The shared default Luban directory is in `Directory.Build.props`. Override it
-without editing files when necessary:
+`LubanDir` comes from `Directory.Build.props`, which is not tracked by git —
+create it from `Directory.Build.props.example` once per machine, as described in
+the [repository readme](../README.md#setup). Override it without editing files
+when necessary:
 
 ```powershell
-dotnet build ..\Luban.Extensions.sln -c Release -m:1 `
+dotnet build Luban.Extensions.sln -c Release -m:1 `
   -p:DeployLubanExtensions=true `
-  -p:LubanDir="D:\Tools\Luban"
+  -p:LubanDir="C:\path\to\luban\Tools\Luban"
 ```
 
 ### Deployment artifacts
@@ -63,24 +67,19 @@ the manifest byte-for-byte unchanged when the extension is already registered.
 
 ## Usage
 
-Recommended:
-
-```powershell
-dotnet Luban.dll `
-  ... `
-  -x "pathValidator.rootDirs=D:\GameProgram\Assets;D:\GameArt\Assets"
-```
-
-If the value stored in the table is:
+Point the roots at the directories your stored values are relative to. If the
+table stores a path relative to the Unity project:
 
 ```text
 Assets/UI/Icon/Foo.png
 ```
 
-then the roots should normally be the Unity project directories instead:
+then the roots are the project directories:
 
 ```powershell
--x "pathValidator.rootDirs=D:\GameProgram;D:\GameArt"
+dotnet Luban.dll `
+  ... `
+  -x "pathValidator.rootDirs=C:\path\to\client;C:\path\to\art"
 ```
 
 because `path=unity` checks:
@@ -89,12 +88,15 @@ because `path=unity` checks:
 <root>/<field value>
 ```
 
-For example it will accept the value if either file exists:
+so the value is accepted as soon as either file exists:
 
 ```text
-D:\GameProgram\Assets\UI\Icon\Foo.png
-D:\GameArt\Assets\UI\Icon\Foo.png
+C:\path\to\client\Assets\UI\Icon\Foo.png
+C:\path\to\art\Assets\UI\Icon\Foo.png
 ```
+
+If the table stores a path relative to `Assets` instead, point the roots at the
+`Assets` directory of each project.
 
 Existing schema/configuration does not need to change:
 
@@ -107,13 +109,13 @@ string#path=unity
 The extension also accepts the original option name. A single root behaves exactly like Luban's built-in validator:
 
 ```powershell
--x "pathValidator.rootDir=D:\GameProgram"
+-x "pathValidator.rootDir=C:\path\to\client"
 ```
 
 You may also supply multiple roots through it:
 
 ```powershell
--x "pathValidator.rootDir=D:\GameProgram;D:\GameArt"
+-x "pathValidator.rootDir=C:\path\to\client;C:\path\to\art"
 ```
 
 If both `rootDirs` and `rootDir` are provided, `rootDirs` wins.
@@ -143,5 +145,9 @@ The only semantic change is that a path succeeds when **any** configured root co
 
 ## License note
 
-The path-pattern behavior is adapted from Luban, which is MIT-licensed. See `LICENSE.Luban`.
+This extension is MIT licensed, like the rest of the repository — see the
+[repository license](../LICENSE).
+
+The path-pattern behavior is adapted from Luban, which is MIT-licensed. Luban's own
+license text and copyright notice are kept next to that code, in `LICENSE.Luban`.
 
