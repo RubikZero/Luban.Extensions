@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Copy this file to Directory.Build.props and point LubanDir at your own Luban
+    installation: the directory that contains Luban.dll, Luban.Core.dll, NLog.dll
+    and Luban.deps.json.
+
+    Directory.Build.props is not tracked by git, so every machine keeps its own
+    path. Everything else the build needs is in the tracked
+    Directory.Build.targets.
+
+    You can also skip the file completely and pass the path on the command line:
+
+      dotnet build Luban.Extensions.sln -c Release -p:LubanDir=<your path>
+  -->
+  <PropertyGroup>
+    <LubanDir Condition="'$(LubanDir)' == ''">C:\path\to\luban\Tools\Luban</LubanDir>
+  </PropertyGroup>
+</Project>

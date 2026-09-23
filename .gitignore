@@ -24,3 +24,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+
+# Machine-local build configuration (copy Directory.Build.props.example)
+/Directory.Build.props

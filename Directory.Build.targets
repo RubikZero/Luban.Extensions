@@ -1,4 +1,15 @@
 <Project>
+  <PropertyGroup>
+    <!--
+      Machine-independent build settings for every Luban extension project.
+      The only machine-specific value is LubanDir, which lives in the untracked
+      Directory.Build.props (copy Directory.Build.props.example to create it).
+    -->
+    <LubanExtensionDeployerProject>$(MSBuildThisFileDirectory)tools\Luban.Extension.Deployer\Luban.Extension.Deployer.csproj</LubanExtensionDeployerProject>
+    <!-- Avoid concurrent compiler-server startup failures when building all extensions. -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+
   <!--
     An extension project opts in with IsLubanExtension=true. The C# deployer
     receives the output DLL and takes care of copying it and registering it in
