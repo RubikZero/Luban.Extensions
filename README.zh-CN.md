@@ -16,7 +16,7 @@
 
 ## Luban 如何加载扩展
 
-已针对 Luban 4.5.0 验证。5.x 中同样是这套机制，且两个扩展在两条线上都能**零改动编译**——见 [Luban 版本支持](#luban-版本支持)。
+这套机制在受支持的整个范围内都一致——见 [Luban 版本支持](#luban-版本支持)。
 
 1. Luban 扫描 `Luban.dll` 同级目录下的 `*.dll`（**仅顶层目录，不递归**），加载其中文件名包含 `Luban` 的全部文件。
 2. 在这些程序集里，只有带 `[assembly: RegisterBehaviour]` 的才会被扫描自定义行为。
@@ -27,21 +27,39 @@
 
 ## Luban 版本支持
 
-两个扩展对 Luban 4.5.0 与 5.1.0 都能**零改动编译**。这是实测结论而非推断：源码分别对着两个 tag 构建出的 `Luban.Core` 各编译了一遍，解决方案对两者都干净通过。
+**支持范围是 Luban 4.1.0 及之后的版本。** 从 v4.1.0 到 v5.1.0 的每一个发行版，两个扩展都能零改动编译并运行；[`Build`](.github/workflows/build.yml) 工作流正是在验证这一点：逐个下载对应发行版、对着它编译、把扩展部署进去、再用它跑一遍 fixture。
 
-本仓库依赖的全部内容在两条线上都一致——行为注册表及其优先级规则、`IDataValidator` 与 `DataValidatorBase`、`PostProcessBase` 与 `PostProcessAttribute`、`DefTable` 的索引模型（含 `IndexInfo`）、`TypeTemplateExtension`，以及插件发现规则。其余差异要么是纯追加（新增类型成员），要么是内部改动（错误文案移入可本地化的消息表、启动器单例改为 `PipelineScope`）。
+这是实测结论而非推断：源码分别对着各个 tag 构建出的 `Luban.Core` 编译过，扩展用到的 API 面也逐 tag 核对过。
 
-升级到 5.x 时，Luban 侧有两处变化。它们都不影响本仓库，但可能影响你自己的环境：
+该范围内扩展依赖的一切都是稳定的——行为注册表及其优先级规则、`IDataValidator` 与 `DataValidatorBase`、`PostProcessBase` 与 `PostProcessAttribute`、`DefTable` 的索引模型（含 `IndexInfo`）、`TypeTemplateExtension`，以及插件发现规则。其余差异要么是纯追加（新增类型成员），要么是内部改动（错误文案移入可本地化的消息表、v5.0.0 起启动器单例改为 `PipelineScope`）。
+
+### 下界为什么是 v4.1.0
+
+`DMap` 在那个版本改了唯一的访问器名：
+
+| 版本 | 成员 |
+| --- | --- |
+| v4.0.0 及更早 | `Dictionary<DType, DType> Datas` |
+| **v4.1.0 及之后** | `Dictionary<DType, DType> DataMap` |
+
+Lua 校验器正是通过它遍历 map 字段，所以 v4.0.0 及更早需要一行源码改动——`LuaConfigData.cs` 里的 `map.DataMap` 改成 `map.Datas`——而同一份源码不加条件编译无法同时满足两种拼写。因此这些版本是**有意排除**，而非未经验证。
+
+如果确实需要覆盖更老的发行版，另有两点需要注意：
+
+- 从 v3.13.0 一直到 2.x，`DefEnum.GetValueByNameOrAlias` 不接受分隔符参数（`GetValueByNameOrAlias(text)`）；扩展调用的双参数形式是 v3.13.0 才有的。
+- 只有 1.x 是真正不同的架构：它早于单工具模型，用 `Luban.Client` / `Luban.ClientServer` 而非 `Luban.Core`，且其发行版不附带任何二进制资产。
+
+### 升级到 5.x
+
+Luban 侧有两处变化。它们都不影响本仓库，但可能影响你自己的环境：
 
 - 命令行参数 `--validationFailAsError` 改名为 `--strict`，请检查你的启动脚本；
 - `EnvManager.Current`、`GenerationContext.Current` 这类管理器属性在没有活动 `PipelineScope` 时会**抛异常**。通过 `Luban.dll` 运行时永远不会遇到，但以编程方式驱动 Luban 的宿主必须先进入 scope。
 
-由于构建固定使用 `LUBAN_VERSION`，等你的 Luban 安装升级完成后，升级本扩展只是改这一个值。
-
 ## 环境要求
 
 - .NET 8 SDK
-- 面向 .NET 8 构建的 Luban（4.5.0 与 5.1.0 均支持），且安装目录下存在 `Luban.Core.dll`、`NLog.dll` 与 `Luban.deps.json`
+- 面向 .NET 8 构建的 Luban（支持 4.1.0 及之后的版本），且安装目录下存在 `Luban.Core.dll`、`NLog.dll` 与 `Luban.deps.json`
 
 ## 初始化
 
@@ -114,7 +132,9 @@ tag 必须是小写 `v` 加三段以点分隔的数字，且其提交必须能�
 ## 仓库结构
 
 ```text
-.github/workflows/release.yml    由 vX.Y.Z tag 构建并发布 Release
+.github/actions/build-against-luban/  针对单个 Luban 发行版构建并验证
+.github/workflows/build.yml           验证全部受支持的 Luban 发行版
+.github/workflows/release.yml         由 vX.Y.Z tag 构建并发布 Release
 Directory.Build.props.example    本机路径配置的模板（生成的文件不受跟踪）
 Directory.Build.targets          受跟踪的、与机器无关的构建配置
 LICENSE                          本仓库的 MIT 许可

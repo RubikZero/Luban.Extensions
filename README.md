@@ -19,8 +19,7 @@ Every project directory has its own readme, in English and Chinese.
 
 ## How Luban loads an extension
 
-Verified against Luban 4.5.0. The same mechanism is present in 5.x, and both
-extensions compile unchanged against either line — see
+The mechanism is the same throughout the supported range — see
 [Luban version support](#luban-version-support).
 
 1. Luban scans `*.dll` next to `Luban.dll` — **top directory only** — and loads
@@ -41,20 +40,52 @@ because the file-name scan will never find it.
 
 ## Luban version support
 
-Both extensions compile **unchanged** against Luban 4.5.0 and 5.1.0. That is
-measured, not assumed: the sources were compiled against `Luban.Core` built from
-each tag, and the solution builds cleanly against both.
+**Luban 4.1.0 and later is the supported range.** Every release from v4.1.0
+through v5.1.0 compiles and runs against these extensions unchanged, and the
+[`Build`](.github/workflows/build.yml) workflow verifies exactly that: each
+release is downloaded, the solution is built against it, the extensions are
+deployed into it and the fixture is run through it.
 
-Everything this repository depends on is the same in the two lines — the behaviour
+That is measured rather than assumed. The sources were compiled against
+`Luban.Core` built from individual tags, and the API surface the extensions use
+was checked tag by tag.
+
+Everything the extensions depend on is stable across that range — the behaviour
 registry and its priority rules, `IDataValidator` and `DataValidatorBase`,
 `PostProcessBase` and `PostProcessAttribute`, the `DefTable` index model including
 `IndexInfo`, `TypeTemplateExtension`, and the plugin discovery rules. The
 remaining differences are either additive (new type members) or internal (error
 messages moved into a localizable catalog, the launcher singleton replaced by
-`PipelineScope`).
+`PipelineScope` at v5.0.0).
 
-Two things change on the Luban side when you move to 5.x. Neither touches this
-repository, but both can affect your own setup:
+### Why v4.1.0 is the floor
+
+`DMap` renamed its only accessor in that release:
+
+| Version | Member |
+| --- | --- |
+| v4.0.0 and older | `Dictionary<DType, DType> Datas` |
+| **v4.1.0 and later** | `Dictionary<DType, DType> DataMap` |
+
+The Lua validator enumerates map fields through it, so v4.0.0 and everything
+older need a one-line source change — `map.DataMap` to `map.Datas` in
+`LuaConfigData.cs` — and a single source tree cannot satisfy both spellings
+without conditional compilation. Those versions are therefore deliberately out of
+scope rather than untested.
+
+Two further notes for anyone who wants to reach older releases anyway:
+
+- From v3.13.0 down to v2.x, `DefEnum.GetValueByNameOrAlias` takes no separator
+  argument (`GetValueByNameOrAlias(text)`); the two-argument form the extensions
+  call arrived in v3.13.0.
+- The 1.x line is the only genuinely different architecture: it predates the
+  single-tool model, with `Luban.Client` / `Luban.ClientServer` instead of
+  `Luban.Core`, and its releases carry no binary asset at all.
+
+### Moving to 5.x
+
+Two things change on the Luban side. Neither touches this repository, but both can
+affect your own setup:
 
 - the CLI flag `--validationFailAsError` became `--strict`, so check your launch
   scripts;
@@ -63,13 +94,10 @@ repository, but both can affect your own setup:
   `Luban.dll`, but a host that drives Luban programmatically has to enter a scope
   first.
 
-Because the build is pinned to `LUBAN_VERSION`, upgrading is a matter of changing
-that one value once your Luban installation has been upgraded.
-
 ## Requirements
 
 - .NET 8 SDK
-- A Luban installation built for .NET 8 (4.5.0 and 5.1.0 are both supported),
+- A Luban installation built for .NET 8 (4.1.0 and later are supported),
   containing `Luban.Core.dll`, `NLog.dll` and `Luban.deps.json`
 
 ## Setup
@@ -175,7 +203,9 @@ for the MoonSharp example.
 ## Repository layout
 
 ```text
-.github/workflows/release.yml    Builds and publishes a Release from a vX.Y.Z tag
+.github/actions/build-against-luban/  Builds and verifies against one Luban release
+.github/workflows/build.yml           Verifies every supported Luban release
+.github/workflows/release.yml         Builds and publishes a Release from a vX.Y.Z tag
 Directory.Build.props.example    Template for the untracked machine-local paths
 Directory.Build.targets          Tracked, machine-independent build settings
 LICENSE                          MIT license of this repository
