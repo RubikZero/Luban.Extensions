@@ -40,15 +40,15 @@ because the file-name scan will never find it.
 
 ## Luban version support
 
-**Luban 4.1.0 and later is the supported range.** Every release from v4.1.0
-through v5.1.0 compiles and runs against these extensions unchanged, and the
-[`Build`](.github/workflows/build.yml) workflow verifies exactly that: each
-release is downloaded, the solution is built against it, the extensions are
-deployed into it and the fixture is run through it.
+**Luban 4.1.0 and later is the supported range.** Everything in it compiles and
+runs against these extensions unchanged, and the
+[`Build`](.github/workflows/build.yml) workflow checks one release per API era —
+4.1.0, 4.7.0, 4.12.0, 5.0.0 and 5.1.0 — downloading each, building the solution
+against it, deploying the extensions into it and running the fixture through it.
 
-That is measured rather than assumed. The sources were compiled against
-`Luban.Core` built from individual tags, and the API surface the extensions use
-was checked tag by tag.
+Those five are a sample, not the whole range: the API surface the extensions use
+was checked tag by tag across every release from 4.1.0 to 5.1.0, and the result is
+that nothing between the era boundaries changes what the extensions touch.
 
 Everything the extensions depend on is stable across that range — the behaviour
 registry and its priority rules, `IDataValidator` and `DataValidatorBase`,
@@ -67,25 +67,11 @@ messages moved into a localizable catalog, the launcher singleton replaced by
 | v4.0.0 and older | `Dictionary<DType, DType> Datas` |
 | **v4.1.0 and later** | `Dictionary<DType, DType> DataMap` |
 
-The Lua validator enumerates map fields through it, and a single source tree
-cannot satisfy both spellings without conditional compilation, so v4.0.0 and older
-are deliberately out of scope rather than untested.
-
-What reaching them would actually cost — and why the floor is worth keeping:
-
-- **v4.0.0** — one edit: `map.DataMap` to `map.Datas` in `LuaConfigData.cs`.
-- **v3.13.0 and v3.14.0** — that edit, plus `value.Datas`, which the validator uses
-  to walk collection elements. It reaches that through `DType.Datas`, a member
-  that only exists from v4.0.0; before then the property is declared separately on
-  `DArray`, `DList` and `DSet`, so the fix is a small type switch.
-- **v3.0.0 to v3.12.0, and every 2.x tag** — those two, plus
-  `DefEnum.GetValueByNameOrAlias(text)`: the separator argument the validator
-  passes only arrived in v3.13.0.
-- **1.x** — a different architecture entirely: `Luban.Client` / `Luban.ClientServer`
-  instead of `Luban.Core`, and its releases carry no binary asset at all.
-
-The 2.x line is not a shortcut either: everything up to v2.5.0 targets `net7.0`,
-and current GitHub runners no longer ship a .NET 7 runtime.
+The Lua validator enumerates map fields through it, and a single source tree cannot
+serve both spellings without conditional compilation. Releases before v4.1.0 are
+therefore outside the supported range, and they differ from it in further ways:
+the 3.x and 1.x lines diverge from the plugin-facing API in several places, and
+the 1.x line is a different architecture altogether.
 
 ### Moving to 5.x
 

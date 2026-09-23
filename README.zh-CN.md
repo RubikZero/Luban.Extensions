@@ -27,9 +27,9 @@
 
 ## Luban 版本支持
 
-**支持范围是 Luban 4.1.0 及之后的版本。** 从 v4.1.0 到 v5.1.0 的每一个发行版，两个扩展都能零改动编译并运行；[`Build`](.github/workflows/build.yml) 工作流正是在验证这一点：逐个下载对应发行版、对着它编译、把扩展部署进去、再用它跑一遍 fixture。
+**支持范围是 Luban 4.1.0 及之后的版本。** 该范围内的一切都能零改动编译并运行；[`Build`](.github/workflows/build.yml) 工作流按 API 代际各取一个发行版验证——4.1.0、4.7.0、4.12.0、5.0.0、5.1.0——逐个下载、对着它编译、把扩展部署进去、再用它跑一遍 fixture。
 
-这是实测结论而非推断：源码分别对着各个 tag 构建出的 `Luban.Core` 编译过，扩展用到的 API 面也逐 tag 核对过。
+这五个是抽样而非全部：扩展用到的 API 面已按 tag 逐个核对过 4.1.0 到 5.1.0 的每一个发行版，结论是代际边界之间没有任何改动触及扩展使用的东西。
 
 该范围内扩展依赖的一切都是稳定的——行为注册表及其优先级规则、`IDataValidator` 与 `DataValidatorBase`、`PostProcessBase` 与 `PostProcessAttribute`、`DefTable` 的索引模型（含 `IndexInfo`）、`TypeTemplateExtension`，以及插件发现规则。其余差异要么是纯追加（新增类型成员），要么是内部改动（错误文案移入可本地化的消息表、v5.0.0 起启动器单例改为 `PipelineScope`）。
 
@@ -42,16 +42,7 @@
 | v4.0.0 及更早 | `Dictionary<DType, DType> Datas` |
 | **v4.1.0 及之后** | `Dictionary<DType, DType> DataMap` |
 
-Lua 校验器正是通过它遍历 map 字段，而同一份源码不加条件编译无法同时满足两种拼写，所以 v4.0.0 及更早是**有意排除**，而非未经验证。
-
-真要往下兼容，代价如下——这也是下界值得守住的原因：
-
-- **v4.0.0**——一处编辑：`LuaConfigData.cs` 里的 `map.DataMap` 改成 `map.Datas`。
-- **v3.13.0 与 v3.14.0**——再加上 `value.Datas`：校验器用它遍历集合元素，而它经由 `DType.Datas` 读取，该成员 v4.0.0 才存在；更早的版本里这个属性分别声明在 `DArray`、`DList`、`DSet` 上，所以修法是一个小的类型分支。
-- **v3.0.0 至 v3.12.0，以及全部 2.x**——再加上 `DefEnum.GetValueByNameOrAlias(text)`：校验器传入的分隔符参数 v3.13.0 才有。
-- **1.x**——完全不同的架构：用 `Luban.Client` / `Luban.ClientServer` 而非 `Luban.Core`，且其发行版不附带任何二进制资产。
-
-2.x 也不是捷径：v2.5.0 为止的所有版本 TFM 都是 `net7.0`，而当前的 GitHub runner 已不再提供 .NET 7 运行时。
+Lua 校验器正是通过它遍历 map 字段，而同一份源码不加条件编译无法同时服务两种拼写。因此 v4.1.0 之前的发行版不在支持范围内；它们与当前 API 的差异还不止这一处——3.x 与 1.x 在多个插件相关 API 上都与之不同，而 1.x 更是完全另一套架构。
 
 ### 升级到 5.x
 

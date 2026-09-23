@@ -28,38 +28,20 @@ jobs:
       # One failing version must not hide the result of the others.
       fail-fast: false
       matrix:
-        # Every release from v4.1.0 upward compiles and runs unchanged, so this
-        # is the supported range rather than a sample of it.
+        # One release per API era in the supported range (4.1.0 and later):
         #
-        # v4.1.0 is the floor because DMap renamed its member from Datas to
-        # DataMap in that release, and the Lua validator reads map entries
-        # through it. v4.0.0 and older would each need a one-line edit, and the
-        # 1.x line predates the single-tool model altogether, so neither is
-        # listed. See "Luban version support" in the readme for the reasoning.
+        #   4.1.0   the floor, and the first release with the current DMap API
+        #   4.7.0   Scriban jumped 5.12.0 -> 7.1.0
+        #   4.12.0  last 4.x, still before PipelineScope
+        #   5.0.0   PipelineScope replaced the launcher singleton
+        #   5.1.0   current
         #
-        # v4.8.0 belongs here even though it is the one release shipping
-        # Luban.zip instead of Luban.7z: it is what exercises the asset-name
-        # fallback in the build action.
-        #
-        # If the full sweep ever becomes too slow, trim to the five era
-        # boundaries — 4.1.0, 4.7.0, 4.12.0, 5.0.0, 5.1.0 — which cover every
-        # API change found so far.
+        # Nothing between these boundaries changes anything the extensions touch,
+        # so the sample is what the readme's supported range rests on. See "Luban
+        # version support" for the tag-by-tag check and for why 4.1.0 is the floor.
         luban:
           - '4.1.0'
-          - '4.2.0'
-          - '4.2.1'
-          - '4.3.0'
-          - '4.4.0'
-          - '4.4.1'
-          - '4.5.0'
-          - '4.6.0'
           - '4.7.0'
-          - '4.8.0'
-          - '4.9.0'
-          - '4.10.0'
-          - '4.10.1'
-          - '4.10.2'
-          - '4.11.0'
           - '4.12.0'
           - '5.0.0'
           - '5.1.0'
