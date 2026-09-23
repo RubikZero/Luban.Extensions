@@ -6,6 +6,21 @@ return Deploy(args);
 
 static int Deploy(string[] args)
 {
+    // Any failure (denied write, missing file, malformed manifest) must surface
+    // as a plain build error, not as an unhandled-exception crash dialog.
+    try
+    {
+        return DeployCore(args);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"Deployment failed: {exception.Message}");
+        return 1;
+    }
+}
+
+static int DeployCore(string[] args)
+{
     if (args.Length < 2)
     {
         Console.Error.WriteLine("Usage: Luban.Extension.Deployer <extension.dll> <Luban directory> [dependency.dll ...]");
