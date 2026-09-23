@@ -1,0 +1,79 @@
+name: Build
+
+# Every push to master and every pull request builds and verifies the extensions
+# against each supported Luban release, so an API change on Luban's side shows up
+# here rather than in a release. The release workflow runs the same composite
+# action, so a green matrix and a published release mean the same thing.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  build:
+    name: Luban ${{ matrix.luban }}
+
+    runs-on: windows-latest
+
+    strategy:
+      # One failing version must not hide the result of the others.
+      fail-fast: false
+      matrix:
+        # Every release from v4.1.0 upward compiles and runs unchanged, so this
+        # is the supported range rather than a sample of it.
+        #
+        # v4.1.0 is the floor because DMap renamed its member from Datas to
+        # DataMap in that release, and the Lua validator reads map entries
+        # through it. v4.0.0 and older would each need a one-line edit, and the
+        # 1.x line predates the single-tool model altogether, so neither is
+        # listed. See "Luban version support" in the readme for the reasoning.
+        #
+        # v4.8.0 belongs here even though it is the one release shipping
+        # Luban.zip instead of Luban.7z: it is what exercises the asset-name
+        # fallback in the build action.
+        #
+        # If the full sweep ever becomes too slow, trim to the five era
+        # boundaries — 4.1.0, 4.7.0, 4.12.0, 5.0.0, 5.1.0 — which cover every
+        # API change found so far.
+        luban:
+          - '4.1.0'
+          - '4.2.0'
+          - '4.2.1'
+          - '4.3.0'
+          - '4.4.0'
+          - '4.4.1'
+          - '4.5.0'
+          - '4.6.0'
+          - '4.7.0'
+          - '4.8.0'
+          - '4.9.0'
+          - '4.10.0'
+          - '4.10.1'
+          - '4.10.2'
+          - '4.11.0'
+          - '4.12.0'
+          - '5.0.0'
+          - '5.1.0'
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build and verify against Luban ${{ matrix.luban }}
+        uses: ./.github/actions/build-against-luban
+        with:
+          luban-version: ${{ matrix.luban }}

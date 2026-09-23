@@ -52,7 +52,7 @@ jobs:
           }
 
           $version = $tag.Substring(1)
-          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Tag '$tag' is well formed and on master; releasing version $version."
 
       - name: Set up .NET
@@ -60,58 +60,11 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Download the Luban reference assemblies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $url = "https://github.com/focus-creative-games/luban/releases/download/v$env:LUBAN_VERSION/Luban.7z"
-          $archive = Join-Path $env:RUNNER_TEMP 'Luban.7z'
-          Write-Host "Downloading $url"
-          Invoke-WebRequest -Uri $url -OutFile $archive
-
-          $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source
-          if (-not $sevenZip) { $sevenZip = 'C:\Program Files\7-Zip\7z.exe' }
-
-          $extract = Join-Path $env:RUNNER_TEMP 'luban'
-          & $sevenZip x $archive "-o$extract" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Failed to extract $archive" }
-
-          # Do not assume the archive layout: use whichever directory holds the
-          # assemblies the projects reference through $(LubanDir).
-          $core = Get-ChildItem $extract -Recurse -Filter 'Luban.Core.dll' | Select-Object -First 1
-          if (-not $core) { throw "Luban.Core.dll was not found inside $archive" }
-
-          "LUBAN_DIR=$($core.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "LubanDir = $($core.DirectoryName)"
-
-      - name: Build and deploy into the downloaded Luban
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          # Deploying here is what makes the verification step below possible:
-          # Luban only loads an extension that sits next to Luban.dll and is
-          # registered in Luban.deps.json.
-          dotnet build Luban.Extensions.sln -c Release -m:1 `
-            "-p:LubanDir=$env:LUBAN_DIR" `
-            "-p:Version=$env:VERSION" `
-            -p:DeployLubanExtensions=true
-          if ($LASTEXITCODE -ne 0) { throw "Build failed." }
-
-      - name: Run the fixture through Luban
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
-            --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
-            -x outputSaver=null `
-            -x dataPostprocess=luaValidator `
-            -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules"
-          if ($LASTEXITCODE -ne 0) { throw "The Lua validator fixture failed; nothing was released." }
-
-          Write-Host "The extension loaded into Luban and the fixture passed."
+      - name: Build and verify against the pinned Luban
+        uses: ./.github/actions/build-against-luban
+        with:
+          luban-version: ${{ env.LUBAN_VERSION }}
+          assembly-version: ${{ env.RELEASE_VERSION }}
 
       - name: Package the extension DLLs
         shell: pwsh

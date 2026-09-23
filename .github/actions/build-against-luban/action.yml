@@ -1,0 +1,111 @@
+name: Build against a Luban version
+description: >-
+  Downloads the given Luban release, builds the solution against it with LubanDir
+  pointing at the extracted installation, deploys the extensions into that
+  installation and runs the Lua validator fixture through Luban. The steps are
+  shared by the release workflow and the version matrix so that both exercise
+  exactly the same pipeline.
+
+inputs:
+  luban-version:
+    description: Luban release tag without the leading v, for example 4.5.0.
+    required: true
+  assembly-version:
+    description: >-
+      Value for the MSBuild Version property. Leave empty to keep the projects'
+      default (1.0.0.0), which is what a local build produces. When empty, the
+      RELEASE_VERSION environment variable is used instead if the caller set one,
+      which is how the release workflow passes the tag without relying on the env
+      context being populated from GITHUB_ENV.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Download the Luban reference assemblies
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        # The asset name is not consistent across releases: almost every tag
+        # publishes Luban.7z, but v4.8.0 publishes Luban.zip instead. Try the
+        # known names rather than hardcoding one, so adding a version to the
+        # matrix does not silently 404.
+        $baseUrl = "https://github.com/focus-creative-games/luban/releases/download/v${{ inputs.luban-version }}"
+        $archive = $null
+        foreach ($assetName in @('Luban.7z', 'Luban.zip')) {
+          $candidate = Join-Path $env:RUNNER_TEMP "${{ inputs.luban-version }}-$assetName"
+          try {
+            Write-Host "Trying $baseUrl/$assetName"
+            Invoke-WebRequest -Uri "$baseUrl/$assetName" -OutFile $candidate -ErrorAction Stop
+            $archive = $candidate
+            Write-Host "Downloaded $assetName"
+            break
+          }
+          catch {
+            Write-Host "  not available: $assetName"
+          }
+        }
+
+        if (-not $archive) {
+          throw "No Luban archive found for v${{ inputs.luban-version }}. Tried Luban.7z and Luban.zip."
+        }
+
+        $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+        if (-not $sevenZip) { $sevenZip = 'C:\Program Files\7-Zip\7z.exe' }
+
+        # 7-Zip reads both containers, so the extraction below is asset-agnostic.
+        $extract = Join-Path $env:RUNNER_TEMP "luban-${{ inputs.luban-version }}"
+        & $sevenZip x $archive "-o$extract" -y | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract $archive" }
+
+        # Do not assume the archive layout: use whichever directory holds the
+        # assemblies the projects reference through $(LubanDir).
+        $core = Get-ChildItem $extract -Recurse -Filter 'Luban.Core.dll' | Select-Object -First 1
+        if (-not $core) { throw "Luban.Core.dll was not found inside $archive" }
+
+        "LUBAN_DIR=$($core.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        Write-Host "LubanDir = $($core.DirectoryName)"
+
+    - name: Build and deploy into the downloaded Luban
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        # Deploying here is what makes the verification step below possible:
+        # Luban only loads an extension that sits next to Luban.dll and is
+        # registered in Luban.deps.json.
+        $msbuildArgs = @(
+          'build', 'Luban.Extensions.sln', '-c', 'Release', '-m:1',
+          "-p:LubanDir=$env:LUBAN_DIR",
+          '-p:DeployLubanExtensions=true'
+        )
+
+        # Prefer the explicit input; fall back to the environment variable that
+        # the release workflow exports, so a build is never silently unstamped.
+        $assemblyVersion = '${{ inputs.assembly-version }}'
+        if (-not $assemblyVersion) { $assemblyVersion = $env:RELEASE_VERSION }
+        if ($assemblyVersion) {
+          Write-Host "Stamping assembly version $assemblyVersion."
+          $msbuildArgs += "-p:Version=$assemblyVersion"
+        }
+
+        dotnet @msbuildArgs
+        if ($LASTEXITCODE -ne 0) { throw "Build against Luban ${{ inputs.luban-version }} failed." }
+
+    - name: Run the fixture through Luban
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
+          --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
+          -x outputSaver=null `
+          -x dataPostprocess=luaValidator `
+          -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules"
+        if ($LASTEXITCODE -ne 0) { throw "The Lua validator fixture failed against Luban ${{ inputs.luban-version }}." }
+
+        # The fixture logs deliberate warnings for the lookups that cannot work;
+        # only the exit code decides.
+        Write-Host "Luban ${{ inputs.luban-version }}: the extension loaded and the fixture passed."
