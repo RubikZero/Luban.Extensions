@@ -22,14 +22,35 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
         _scriptDirectories = ParseDirectories(rawDirectories);
     }
 
+    // Luban collects the exported files into one manifest, hands the
+    // postprocessor an empty second manifest and saves whatever comes back:
+    //
+    //   mission.Handle(ctx, dataTarget, outputManifest);
+    //   var newManifest = PostProcess(dataPostprocess, outputManifest);
+    //   Save(newManifest);
+    //
+    // A postprocessor that only validates therefore returns an empty manifest and
+    // the export writes nothing at all — already exported files are removed by the
+    // output saver. Passing every file through unchanged is what makes validation
+    // additive instead of destructive.
     public override void PostProcess(OutputFileManifest oldOutputFileManifest, OutputFileManifest newOutputFileManifest)
     {
+        // Also runs for a target that exports no file, so a rule problem cannot
+        // hide behind an empty export.
         ExecuteOnce();
+
+        foreach (OutputFile outputFile in oldOutputFileManifest.DataFiles)
+        {
+            PostProcess(oldOutputFileManifest, newOutputFileManifest, outputFile);
+        }
     }
 
     public override void PostProcess(OutputFileManifest oldOutputFileManifest, OutputFileManifest newOutputFileManifest, OutputFile outputFile)
     {
+        // ExecuteOnce is idempotent, so validation still runs exactly once whether
+        // the pipeline drives the whole manifest or individual files.
         ExecuteOnce();
+        newOutputFileManifest.AddFile(outputFile);
     }
 
     private void ExecuteOnce()

@@ -3,11 +3,12 @@ description: >-
   Downloads the given Luban release, builds the solution against it with LubanDir
   pointing at the extracted installation, deploys the extensions into that
   installation and runs the fixture through Luban. The fixture checks the Lua
-  API surface and runs the path validator over a path-tagged field twice, once
-  with a root that contains the asset and once with a root that cannot, so both
-  extensions are verified by behaviour rather than by loading alone. The steps
-  are shared by the release workflow and the version matrix so that both
-  exercise exactly the same pipeline.
+  API surface, exports its data for real and requires the exported files to exist,
+  and runs the path validator over a path-tagged field twice, once with a root
+  that contains the asset and once with a root that cannot. Both extensions are
+  therefore verified by behaviour rather than by loading alone. The steps are
+  shared by the release workflow and the version matrix so that both exercise
+  exactly the same pipeline.
 
 inputs:
   luban-version:
@@ -109,6 +110,13 @@ runs:
         $absentRoot = Join-Path $env:RUNNER_TEMP 'absent-resource-root'
         $fixtureRoot = Join-Path $env:GITHUB_WORKSPACE 'Luban.ScriptValidator/tests/Fixture'
 
+        # Export for real instead of running with outputSaver=null. Luban saves
+        # whatever a data postprocessor hands back, so a postprocessor that only
+        # validates returns an empty manifest and the export silently writes
+        # nothing; with a null saver that failure is invisible.
+        $dataDir = Join-Path $env:RUNNER_TEMP 'fixture-data'
+        if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
+
         # What the validator logs when it reports this field. The pattern stays in
         # ASCII on purpose: the message itself is written for people, and a script
         # whose behaviour depends on how the runner encodes non-ASCII text is a
@@ -118,7 +126,7 @@ runs:
 
         $output = dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
           --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
-          -x outputSaver=null `
+          -x "outputDataDir=$dataDir" `
           -x dataPostprocess=luaValidator `
           -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules" `
           -x "pathValidator.rootDirs=$absentRoot;$fixtureRoot" | Out-String
@@ -142,9 +150,22 @@ runs:
           throw "The Lua validator produced no assertions: the fixture did not run."
         }
 
+        # One file per table in the fixture, none of them empty: this is what
+        # proves the postprocessor passed the export through.
+        $exported = @(Get-ChildItem $dataDir -Recurse -File -Filter '*.bytes' -ErrorAction SilentlyContinue)
+        foreach ($table in @('tbasset', 'tbmulti', 'tbone', 'tbsingle', 'tbunion')) {
+          $file = $exported | Where-Object { $_.Name -like "*$table*" } | Select-Object -First 1
+          if (-not $file) {
+            throw "The export wrote no file for $table. Exported: $($exported.Name -join ', ')"
+          }
+          if ($file.Length -eq 0) {
+            throw "The export wrote an empty file for $table."
+          }
+        }
+
         # The fixture logs deliberate warnings for the lookups that cannot work;
         # only the checks above decide.
-        Write-Host "Luban ${{ inputs.luban-version }}: the extension loaded and the fixture passed."
+        Write-Host "Luban ${{ inputs.luban-version }}: the extensions loaded, the fixture passed and the export wrote $($exported.Count) data file(s)."
 
     - name: Prove the path validator reports a missing asset
       shell: pwsh
@@ -156,12 +177,17 @@ runs:
         # Luban logs a failed validation and still exits 0 by default. This step
         # is also what keeps the ASCII signature used by both steps honest: it
         # fails if the pattern ever stops matching what the validator logs.
+        #
+        # The export also goes to a real directory here, so both invocations run
+        # the pipeline exactly the way a user runs it.
         $absentRoot = Join-Path $env:RUNNER_TEMP 'absent-resource-root'
         $missingAsset = 'ERROR.{0,4}"?test\.TbAsset\[1\]\.icon'
+        $dataDir = Join-Path $env:RUNNER_TEMP 'fixture-data-missing-asset'
+        if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
 
         $output = dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
           --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
-          -x outputSaver=null `
+          -x "outputDataDir=$dataDir" `
           -x dataPostprocess=luaValidator `
           -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules" `
           -x "pathValidator.rootDirs=$absentRoot" | Out-String

@@ -29,6 +29,10 @@ dotnet build .\Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=tru
 
 Lua 规则在 Luban 加载完全部表数据、且数据目标装配完成之后运行，但在 `OutputSaver` 写出文件之前。规则目录缺失、Lua 脚本非法、或任何 `fail` / `expect` 失败都会抛出导出错误，使 Luban 以非零退出码结束。Lua 校验失败**不依赖** `#lua` schema 标签或 `--validationFailAsError`。
 
+它是数据后处理器（data postprocess），而 Luban **保存的就是后处理器交回去的那份清单**：本扩展把每个导出文件原样透传，所以开启校验不会改变任何产物内容。唯一会改变结果的是校验失败——此时 Luban 在写盘前中止，不会留下半份产物。
+
+还要注意：清除陈旧文件**不是**开启校验导致的。Luban 的 `local` 输出保存器每次运行都会清空 `outputDataDir`，有没有后处理器都一样；因此不要把手写的文件放在那个目录里。
+
 ## 规则 API
 
 每个规则文件定义一个全局 `validate()` 函数：
@@ -192,15 +196,17 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
   --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
-  -x outputSaver=null `
+  -x "outputDataDir=<一个空目录>" `
   -x dataPostprocess=luaValidator `
   -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules `
   -x "pathValidator.rootDirs=<一个不可能含资源的目录>;Luban.ScriptValidator/tests/Fixture"
 ```
 
-它会打印结果并以 `0` 退出。日志里的警告是刻意构造的「这张表不能这样取索引」场景，每条都写明了原因。
+它会打印结果、往该目录写出「每张表一个」的数据文件，并以 `0` 退出。日志里的警告是刻意构造的「这张表不能这样取索引」场景，每条都写明了原因。
 
-由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出**而不是退出码：上面这次运行只有在路径校验器于**第二个**根目录下找到 `assets/sword.txt` 时才算通过；[共用 action](../.github/actions/build-against-luban/action.yml) 还会把第二个根目录去掉再跑一次，确认校验器此时会报出该字段。
+"写到真实目录"是这项检查的一部分而不是点缀：Luban 保存的就是后处理器交回的清单，所以一个只做校验的后处理器会让输出目录空着、却依然以 `0` 退出。
+
+由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出与产物**而不是退出码：上面这次运行只有在路径校验器于**第二个**根目录下找到 `assets/sword.txt` 时才算通过；[共用 action](../.github/actions/build-against-luban/action.yml) 还会把第二个根目录去掉再跑一次，确认校验器此时会报出该字段。
 
 ## 许可
 

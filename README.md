@@ -46,9 +46,10 @@ runs against these extensions unchanged, and the
 4.1.0, 4.7.0, 4.12.0, 5.0.0 and 5.1.0 — downloading each, building the solution
 against it, deploying the extensions into it and running the fixture through it.
 That fixture asserts behaviour rather than merely loading: it checks the Lua API's
-answers, and it runs the path validator over a root that contains the asset and
-then over one that cannot, so a run in which validation quietly stopped happening
-fails the build instead of passing it.
+answers, it requires the export to actually write its data files, and it runs the
+path validator over a root that contains the asset and then over one that cannot,
+so a run in which validation quietly stopped happening — or in which a
+postprocessor dropped the export — fails the build instead of passing it.
 
 Those five are a sample, not the whole range: the API surface the extensions use
 was checked tag by tag across every release from 4.1.0 to 5.1.0, and the result is

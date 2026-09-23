@@ -44,6 +44,16 @@ directory, an invalid Lua script, or any `fail` / `expect` failure throws an
 export error and stops Luban with a non-zero exit code. No `#lua` schema tag or
 `--validationFailAsError` dependency is required for Lua failures.
 
+It is a data postprocessor, and Luban **saves the manifest a postprocessor hands
+back**: this extension passes every exported file through unchanged, so enabling
+validation never changes the generated output. The only thing that changes the
+outcome is a failure — Luban then stops before saving, so a broken export is never
+left on disk.
+
+Note also that stale files are not removed *because* validation is enabled: Luban's
+`local` output saver clears `outputDataDir` on every run, with or without a
+postprocessor, so do not keep hand-written files in that directory.
+
 ## Rule API
 
 Each rule file defines a global `validate()` function:
@@ -264,20 +274,26 @@ that exercises every lookup form:
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
   --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
-  -x outputSaver=null `
+  -x "outputDataDir=<an empty directory>" `
   -x dataPostprocess=luaValidator `
   -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules `
   -x "pathValidator.rootDirs=<a directory that cannot hold assets>;Luban.ScriptValidator/tests/Fixture"
 ```
 
-It prints its results and exits `0`. The warnings it logs are the deliberate
-"this table cannot be indexed that way" cases, each naming the reason.
+It prints its results, writes one data file per table into that directory and exits
+`0`. The warnings it logs are the deliberate "this table cannot be indexed that way"
+cases, each naming the reason.
+
+Exporting to a real directory is part of the check, not decoration: Luban saves the
+manifest the postprocessor returns, so a postprocessor that only validates would
+leave the output directory empty while still exiting `0`.
 
 Because Luban logs a failed validation without failing the run, the fixture's
-verdict is its output, not its exit code: the run above passes only if the path
-validator found `assets/sword.txt` under the *second* root, and
-[the shared action](../.github/actions/build-against-luban/action.yml) repeats the
-run with that second root removed to confirm the validator then reports the field.
+verdict is its output and its exported files, not its exit code: the run above
+passes only if the path validator found `assets/sword.txt` under the *second* root,
+and [the shared action](../.github/actions/build-against-luban/action.yml) repeats
+the run with that second root removed to confirm the validator then reports the
+field.
 
 ## License
 
