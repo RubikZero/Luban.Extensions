@@ -199,6 +199,11 @@ runs:
 
         Write-Host $output
 
+        # A reported validation failure must not change the exit code by itself.
+        if ($LASTEXITCODE -ne 0) {
+          throw "The run exited $LASTEXITCODE although a failed validation is only supposed to be reported."
+        }
+
         if ($output -notmatch $missingAsset) {
           throw "The path validator stayed silent although no configured root can contain the asset: it is not validating."
         }
@@ -275,5 +280,12 @@ runs:
         if ($strict.Files.Count -eq 0) {
           throw "The export wrote no data file with $strictFlag, although a validation failure is not supposed to stop it."
         }
+
+        # The strict run above exits 1 on purpose. GitHub appends
+        # "if ((Test-Path variable:\LASTEXITCODE)) { exit $LASTEXITCODE }" to every
+        # pwsh step, so the script's final $LASTEXITCODE becomes the step's own exit
+        # code: without clearing it here a step whose checks all passed is reported
+        # as "Process completed with exit code 1".
+        $global:LASTEXITCODE = 0
 
         Write-Host "Luban ${{ inputs.luban-version }}: a failing rule is reported, keeps the run going, and turns into exit 1 only under $strictFlag."
