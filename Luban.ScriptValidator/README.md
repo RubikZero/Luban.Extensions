@@ -257,19 +257,27 @@ interop module is removed as well, so `dynamic` is `nil`.
 `tests/SmokeRules/` holds a rule that only checks the API is reachable.
 
 `tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
-no Excel and no game data — with one table of each shape and a rule that exercises
-every lookup form:
+no Excel and no game data — with one table of each shape, a table carrying a
+`path`-tagged field so the path validator takes part in the same run, and a rule
+that exercises every lookup form:
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
   --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
   -x outputSaver=null `
   -x dataPostprocess=luaValidator `
-  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules
+  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules `
+  -x "pathValidator.rootDirs=<a directory that cannot hold assets>;Luban.ScriptValidator/tests/Fixture"
 ```
 
 It prints its results and exits `0`. The warnings it logs are the deliberate
 "this table cannot be indexed that way" cases, each naming the reason.
+
+Because Luban logs a failed validation without failing the run, the fixture's
+verdict is its output, not its exit code: the run above passes only if the path
+validator found `assets/sword.txt` under the *second* root, and
+[the shared action](../.github/actions/build-against-luban/action.yml) repeats the
+run with that second root removed to confirm the validator then reports the field.
 
 ## License
 

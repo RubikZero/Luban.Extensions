@@ -1,0 +1,2 @@
+Placeholder asset for the fixture: TbAsset.icon points at assets/sword.txt through the
+"string#path=normal;assets/*.txt" tag, so the path validator has a file it can find.

@@ -2,9 +2,12 @@ name: Build against a Luban version
 description: >-
   Downloads the given Luban release, builds the solution against it with LubanDir
   pointing at the extracted installation, deploys the extensions into that
-  installation and runs the Lua validator fixture through Luban. The steps are
-  shared by the release workflow and the version matrix so that both exercise
-  exactly the same pipeline.
+  installation and runs the fixture through Luban. The fixture checks the Lua
+  API surface and runs the path validator over a path-tagged field twice, once
+  with a root that contains the asset and once with a root that cannot, so both
+  extensions are verified by behaviour rather than by loading alone. The steps
+  are shared by the release workflow and the version matrix so that both
+  exercise exactly the same pipeline.
 
 inputs:
   luban-version:
@@ -99,13 +102,78 @@ runs:
       run: |
         $ErrorActionPreference = 'Stop'
 
-        dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
+        # The first root cannot contain the fixture's asset, so the run only stays
+        # green if the validator carries on and finds it under the second one. A
+        # green run therefore means "searching several roots works", not merely
+        # "the option was accepted".
+        $absentRoot = Join-Path $env:RUNNER_TEMP 'absent-resource-root'
+        $fixtureRoot = Join-Path $env:GITHUB_WORKSPACE 'Luban.ScriptValidator/tests/Fixture'
+
+        # What the validator logs when it reports this field. The pattern stays in
+        # ASCII on purpose: the message itself is written for people, and a script
+        # whose behaviour depends on how the runner encodes non-ASCII text is a
+        # check that can stop working for reasons that have nothing to do with
+        # Luban. The step below is what proves the signature is still live.
+        $missingAsset = 'ERROR.{0,4}"?test\.TbAsset\[1\]\.icon'
+
+        $output = dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
           --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
           -x outputSaver=null `
           -x dataPostprocess=luaValidator `
-          -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules"
+          -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules" `
+          -x "pathValidator.rootDirs=$absentRoot;$fixtureRoot" | Out-String
+
+        # Keep the fixture's own output in the log: it is the evidence to read
+        # when one version starts behaving differently from the others.
+        Write-Host $output
+
         if ($LASTEXITCODE -ne 0) { throw "The Lua validator fixture failed against Luban ${{ inputs.luban-version }}." }
 
+        # Luban reports a failed validation without failing the run unless
+        # --validationFailAsError (4.x) or --strict (5.x) is passed, so an
+        # unconfigured or misconfigured validator would look exactly like a pass.
+        if ($output -match $missingAsset) {
+          throw "The path validator reported this field although $fixtureRoot contains its asset."
+        }
+
+        # A sentinel from the fixture's own assertions, so a validator that never
+        # ran cannot be mistaken for one that found nothing to complain about.
+        if ($output -notmatch "\[fx\] cfg\.keyed\('TbAsset'\)\[1\]\.icon = sword") {
+          throw "The Lua validator produced no assertions: the fixture did not run."
+        }
+
         # The fixture logs deliberate warnings for the lookups that cannot work;
-        # only the exit code decides.
+        # only the checks above decide.
         Write-Host "Luban ${{ inputs.luban-version }}: the extension loaded and the fixture passed."
+
+    - name: Prove the path validator reports a missing asset
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        # The counterpart of the run above: with a root that cannot hold the
+        # asset, the validator has to say so. Its message is the signal, because
+        # Luban logs a failed validation and still exits 0 by default. This step
+        # is also what keeps the ASCII signature used by both steps honest: it
+        # fails if the pattern ever stops matching what the validator logs.
+        $absentRoot = Join-Path $env:RUNNER_TEMP 'absent-resource-root'
+        $missingAsset = 'ERROR.{0,4}"?test\.TbAsset\[1\]\.icon'
+
+        $output = dotnet "$env:LUBAN_DIR\Luban.dll" -t all -d bin `
+          --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
+          -x outputSaver=null `
+          -x dataPostprocess=luaValidator `
+          -x "luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules" `
+          -x "pathValidator.rootDirs=$absentRoot" | Out-String
+
+        Write-Host $output
+
+        if ($output -notmatch $missingAsset) {
+          throw "The path validator stayed silent although no configured root can contain the asset: it is not validating."
+        }
+
+        if ($output -notmatch 'roots=\[') {
+          throw "The path validator reported the field without listing the roots it searched."
+        }
+
+        Write-Host "Luban ${{ inputs.luban-version }}: the path validator reported the missing asset under an absent root."

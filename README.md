@@ -45,6 +45,10 @@ runs against these extensions unchanged, and the
 [`Build`](.github/workflows/build.yml) workflow checks one release per API era —
 4.1.0, 4.7.0, 4.12.0, 5.0.0 and 5.1.0 — downloading each, building the solution
 against it, deploying the extensions into it and running the fixture through it.
+That fixture asserts behaviour rather than merely loading: it checks the Lua API's
+answers, and it runs the path validator over a root that contains the asset and
+then over one that cannot, so a run in which validation quietly stopped happening
+fails the build instead of passing it.
 
 Those five are a sample, not the whole range: the API surface the extensions use
 was checked tag by tag across every release from 4.1.0 to 5.1.0, and the result is
@@ -158,8 +162,9 @@ that is not on `master` fails the first step with an explanation.
 2. builds the solution with the tag as the assembly version and deploys the
    extensions into that downloaded Luban,
 3. runs [`Luban.ScriptValidator/tests/Fixture`](Luban.ScriptValidator/tests/Fixture)
-   through Luban, which proves the extension loads and works on a clean machine
-   rather than merely compiling,
+   through Luban — asserting the Lua API's answers and the path validator's verdict
+   — which proves the extensions load and work on a clean machine rather than
+   merely compiling,
 4. attaches a zip of the extension DLLs to a GitHub Release.
 
 The Luban version the build is pinned to is `LUBAN_VERSION` at the top of the

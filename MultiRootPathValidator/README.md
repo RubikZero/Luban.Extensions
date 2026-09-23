@@ -135,6 +135,15 @@ This extension preserves the built-in modes:
 
 The only semantic change is that a path succeeds when **any** configured root contains the corresponding file.
 
+### How this extension is verified
+
+[The shared CI action](../.github/actions/build-against-luban/action.yml) deploys it
+into every Luban release of the supported range and runs the fixture twice over its
+`path`-tagged field: once with an impossible root listed *before* the root that holds
+the asset, which has to pass, and once with only the impossible root, which has to be
+reported. Both checks read Luban's output rather than its exit code, because a failed
+validation is logged without failing the run.
+
 ## Notes
 
 - Root directories are separated with `;`. Quote the full `-x` argument in PowerShell/CMD so the shell does not interpret it.

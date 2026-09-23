@@ -17,4 +17,15 @@
 
     <!-- singleton -->
     <table name="TbOne" value="Row" mode="one" input="one.csv"/>
+
+    <!-- A field carrying a validator tag, so the path validator is part of the
+         pipeline instead of merely being loaded. The tag lives in the type
+         string: "assets/sword.txt" has to exist under one of the configured
+         root directories. -->
+    <bean name="Asset">
+        <var name="id" type="int"/>
+        <var name="icon" type="string#path=normal;assets/*.txt"/>
+    </bean>
+
+    <table name="TbAsset" value="Asset" index="id" mode="map" input="asset.csv"/>
 </module>

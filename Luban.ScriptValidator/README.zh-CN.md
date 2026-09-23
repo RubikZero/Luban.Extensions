@@ -187,17 +187,20 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 
 `tests/SmokeRules/` 里是一条只检查 API 可达的规则。
 
-`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，配一条覆盖全部取值写法的规则：
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张带 `path` 标签字段的表（让路径校验器参与同一次运行），配一条覆盖全部取值写法的规则：
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
   --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
   -x outputSaver=null `
   -x dataPostprocess=luaValidator `
-  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules
+  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules `
+  -x "pathValidator.rootDirs=<一个不可能含资源的目录>;Luban.ScriptValidator/tests/Fixture"
 ```
 
 它会打印结果并以 `0` 退出。日志里的警告是刻意构造的「这张表不能这样取索引」场景，每条都写明了原因。
+
+由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出**而不是退出码：上面这次运行只有在路径校验器于**第二个**根目录下找到 `assets/sword.txt` 时才算通过；[共用 action](../.github/actions/build-against-luban/action.yml) 还会把第二个根目录去掉再跑一次，确认校验器此时会报出该字段。
 
 ## 许可
 

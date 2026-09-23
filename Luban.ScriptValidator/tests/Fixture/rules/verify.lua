@@ -57,4 +57,10 @@ function validate()
     print("[fx] pcall(write leaf) ok? = " .. tostring(pcall(function() union["alpha"][10] = 1 end)))
     print("[fx] pcall(write level) ok? = " .. tostring(pcall(function() union["alpha"] = 1 end)))
     print("[fx] pcall(write root) ok? = " .. tostring(pcall(function() single[1] = 1 end)))
+
+    -- The path-tagged field is an ordinary string here: whatever the path
+    -- validator does with it must not change what Lua sees.
+    print("[fx] ===== field with a validator tag =====")
+    local assets = cfg.keyed("TbAsset")
+    print("[fx] cfg.keyed('TbAsset')[1].icon = " .. tostring(assets[1] and assets[1].icon))
 end

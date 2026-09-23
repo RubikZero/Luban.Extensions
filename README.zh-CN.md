@@ -27,7 +27,7 @@
 
 ## Luban 版本支持
 
-**支持范围是 Luban 4.1.0 及之后的版本。** 该范围内的一切都能零改动编译并运行；[`Build`](.github/workflows/build.yml) 工作流按 API 代际各取一个发行版验证——4.1.0、4.7.0、4.12.0、5.0.0、5.1.0——逐个下载、对着它编译、把扩展部署进去、再用它跑一遍 fixture。
+**支持范围是 Luban 4.1.0 及之后的版本。** 该范围内的一切都能零改动编译并运行；[`Build`](.github/workflows/build.yml) 工作流按 API 代际各取一个发行版验证——4.1.0、4.7.0、4.12.0、5.0.0、5.1.0——逐个下载、对着它编译、把扩展部署进去、再用它跑一遍 fixture。这个 fixture 断言的是**行为**而不只是「加载成功」：既核对 Lua 接口返回的结果，也把路径校验器分别跑在「含该资源的根目录」和「不可能含该资源的根目录」上——于是「校验其实已经静默失效」这种情况会让构建失败，而不是照样通过。
 
 这五个是抽样而非全部：扩展用到的 API 面已按 tag 逐个核对过 4.1.0 到 5.1.0 的每一个发行版，结论是代际边界之间没有任何改动触及扩展使用的东西。
 
@@ -106,7 +106,7 @@ tag 必须是小写 `v` 加三段以点分隔的数字，且其提交必须能�
 
 1. 下载固定版本的 Luban 发行包，并以包含 `Luban.Core.dll` 的目录作为 `LubanDir`；
 2. 以 tag 作为程序集版本构建解决方案，并把扩展部署进那份下载下来的 Luban；
-3. 用 Luban 跑一遍 [`Luban.ScriptValidator/tests/Fixture`](Luban.ScriptValidator/tests/Fixture)——这验证的是「扩展在一台干净机器上真的能加载并工作」，而不只是「能编译」；
+3. 用 Luban 跑一遍 [`Luban.ScriptValidator/tests/Fixture`](Luban.ScriptValidator/tests/Fixture)——既断言 Lua 接口的返回结果，也断言路径校验器的判定——这验证的是「扩展在一台干净机器上真的能加载并工作」，而不只是「能编译」；
 4. 把扩展 DLL 打包成 zip，附到 GitHub Release 上。
 
 构建所固定的 Luban 版本是工作流顶部的 `LUBAN_VERSION`。它决定了扩展编译时对照的 Luban API，因此要与实际部署扩展的那个 Luban 安装保持一致。
