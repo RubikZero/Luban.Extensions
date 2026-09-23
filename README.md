@@ -67,20 +67,25 @@ messages moved into a localizable catalog, the launcher singleton replaced by
 | v4.0.0 and older | `Dictionary<DType, DType> Datas` |
 | **v4.1.0 and later** | `Dictionary<DType, DType> DataMap` |
 
-The Lua validator enumerates map fields through it, so v4.0.0 and everything
-older need a one-line source change — `map.DataMap` to `map.Datas` in
-`LuaConfigData.cs` — and a single source tree cannot satisfy both spellings
-without conditional compilation. Those versions are therefore deliberately out of
-scope rather than untested.
+The Lua validator enumerates map fields through it, and a single source tree
+cannot satisfy both spellings without conditional compilation, so v4.0.0 and older
+are deliberately out of scope rather than untested.
 
-Two further notes for anyone who wants to reach older releases anyway:
+What reaching them would actually cost — and why the floor is worth keeping:
 
-- From v3.13.0 down to v2.x, `DefEnum.GetValueByNameOrAlias` takes no separator
-  argument (`GetValueByNameOrAlias(text)`); the two-argument form the extensions
-  call arrived in v3.13.0.
-- The 1.x line is the only genuinely different architecture: it predates the
-  single-tool model, with `Luban.Client` / `Luban.ClientServer` instead of
-  `Luban.Core`, and its releases carry no binary asset at all.
+- **v4.0.0** — one edit: `map.DataMap` to `map.Datas` in `LuaConfigData.cs`.
+- **v3.13.0 and v3.14.0** — that edit, plus `value.Datas`, which the validator uses
+  to walk collection elements. It reaches that through `DType.Datas`, a member
+  that only exists from v4.0.0; before then the property is declared separately on
+  `DArray`, `DList` and `DSet`, so the fix is a small type switch.
+- **v3.0.0 to v3.12.0, and every 2.x tag** — those two, plus
+  `DefEnum.GetValueByNameOrAlias(text)`: the separator argument the validator
+  passes only arrived in v3.13.0.
+- **1.x** — a different architecture entirely: `Luban.Client` / `Luban.ClientServer`
+  instead of `Luban.Core`, and its releases carry no binary asset at all.
+
+The 2.x line is not a shortcut either: everything up to v2.5.0 targets `net7.0`,
+and current GitHub runners no longer ship a .NET 7 runtime.
 
 ### Moving to 5.x
 

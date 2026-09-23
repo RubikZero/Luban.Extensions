@@ -42,12 +42,16 @@
 | v4.0.0 及更早 | `Dictionary<DType, DType> Datas` |
 | **v4.1.0 及之后** | `Dictionary<DType, DType> DataMap` |
 
-Lua 校验器正是通过它遍历 map 字段，所以 v4.0.0 及更早需要一行源码改动——`LuaConfigData.cs` 里的 `map.DataMap` 改成 `map.Datas`——而同一份源码不加条件编译无法同时满足两种拼写。因此这些版本是**有意排除**，而非未经验证。
+Lua 校验器正是通过它遍历 map 字段，而同一份源码不加条件编译无法同时满足两种拼写，所以 v4.0.0 及更早是**有意排除**，而非未经验证。
 
-如果确实需要覆盖更老的发行版，另有两点需要注意：
+真要往下兼容，代价如下——这也是下界值得守住的原因：
 
-- 从 v3.13.0 一直到 2.x，`DefEnum.GetValueByNameOrAlias` 不接受分隔符参数（`GetValueByNameOrAlias(text)`）；扩展调用的双参数形式是 v3.13.0 才有的。
-- 只有 1.x 是真正不同的架构：它早于单工具模型，用 `Luban.Client` / `Luban.ClientServer` 而非 `Luban.Core`，且其发行版不附带任何二进制资产。
+- **v4.0.0**——一处编辑：`LuaConfigData.cs` 里的 `map.DataMap` 改成 `map.Datas`。
+- **v3.13.0 与 v3.14.0**——再加上 `value.Datas`：校验器用它遍历集合元素，而它经由 `DType.Datas` 读取，该成员 v4.0.0 才存在；更早的版本里这个属性分别声明在 `DArray`、`DList`、`DSet` 上，所以修法是一个小的类型分支。
+- **v3.0.0 至 v3.12.0，以及全部 2.x**——再加上 `DefEnum.GetValueByNameOrAlias(text)`：校验器传入的分隔符参数 v3.13.0 才有。
+- **1.x**——完全不同的架构：用 `Luban.Client` / `Luban.ClientServer` 而非 `Luban.Core`，且其发行版不附带任何二进制资产。
+
+2.x 也不是捷径：v2.5.0 为止的所有版本 TFM 都是 `net7.0`，而当前的 GitHub runner 已不再提供 .NET 7 运行时。
 
 ### 升级到 5.x
 
