@@ -4,9 +4,10 @@ description: >-
   pointing at the extracted installation, deploys the extensions into that
   installation and runs the fixture through Luban. The fixture checks the Lua
   API surface, exports its data for real and requires the exported files to exist,
-  and runs the path validator over a path-tagged field twice, once with a root
-  that contains the asset and once with a root that cannot. Both extensions are
-  therefore verified by behaviour rather than by loading alone. The steps are
+  runs the path validator over a path-tagged field twice, once with a root that
+  contains the asset and once with a root that cannot, and checks that a failing
+  rule is reported the way Luban reports any validation failure. Both extensions
+  are therefore verified by behaviour rather than by loading alone. The steps are
   shared by the release workflow and the version matrix so that both exercise
   exactly the same pipeline.
 
@@ -146,8 +147,12 @@ runs:
 
         # A sentinel from the fixture's own assertions, so a validator that never
         # ran cannot be mistaken for one that found nothing to complain about.
-        if ($output -notmatch "\[fx\] cfg\.keyed\('TbAsset'\)\[1\]\.icon = sword") {
-          throw "The Lua validator produced no assertions: the fixture did not run."
+        # Requiring it exactly once also catches a postprocessor that re-runs the
+        # rules for every exported file instead of once per generation.
+        $sentinel = "cfg\.keyed\('TbAsset'\)\[1\]\.icon = sword"
+        $sentinelCount = ([regex]::Matches($output, $sentinel)).Count
+        if ($sentinelCount -ne 1) {
+          throw "The Lua rules produced their assertions $sentinelCount time(s) instead of once."
         }
 
         # One file per table in the fixture, none of them empty: this is what
@@ -203,3 +208,72 @@ runs:
         }
 
         Write-Host "Luban ${{ inputs.luban-version }}: the path validator reported the missing asset under an absent root."
+
+    - name: Check that a failing rule is reported the way Luban reports failures
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        # A Lua failure has to behave exactly like a built-in validator failure:
+        # logged and recorded, the run continues, the export is still written, and
+        # only the strict flag turns it into a non-zero exit code.
+        #
+        # The flag is read from Luban's own help because 4.x spells it
+        # --validationFailAsError and 5.x --strict. Asking means a version bump
+        # cannot fail the build with an unknown option, and it fails loudly if a
+        # future release renames the flag again.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $help = dotnet "$env:LUBAN_DIR\Luban.dll" --help 2>&1 | Out-String
+        $ErrorActionPreference = $previousPreference
+        $strictFlag = if ($help -match '(?m)^\s*--strict\b') { '--strict' }
+                      elseif ($help -match 'validationFailAsError') { '--validationFailAsError' }
+                      else { throw 'This Luban build offers neither --strict nor --validationFailAsError.' }
+        Write-Host "Strict flag for this build: $strictFlag"
+
+        $fixtureRoot = Join-Path $env:GITHUB_WORKSPACE 'Luban.ScriptValidator/tests/Fixture'
+        $marker = '\[lua-fail-fixture\] deliberate failure'
+
+        function Invoke-FailingFixture([string]$DataDir, [string[]]$ExtraArguments) {
+          if (Test-Path $DataDir) { Remove-Item $DataDir -Recurse -Force }
+          $arguments = @(
+            '-t', 'all', '-d', 'bin',
+            '--conf', 'Luban.ScriptValidator/tests/Fixture/luban.conf',
+            '-x', "outputDataDir=$DataDir",
+            '-x', 'dataPostprocess=luaValidator',
+            '-x', 'luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/failing-rules',
+            '-x', "pathValidator.rootDirs=$fixtureRoot"
+          ) + $ExtraArguments
+          $text = dotnet "$env:LUBAN_DIR\Luban.dll" @arguments 2>&1 | Out-String
+          [pscustomobject]@{
+            ExitCode = $LASTEXITCODE
+            Output   = $text
+            Files    = @(Get-ChildItem $DataDir -Recurse -File -Filter '*.bytes' -ErrorAction SilentlyContinue)
+          }
+        }
+
+        $relaxed = Invoke-FailingFixture (Join-Path $env:RUNNER_TEMP 'fixture-data-failing-rule') @()
+        Write-Host $relaxed.Output
+        if ($relaxed.Output -notmatch $marker) {
+          throw 'The failing rule was not reported at all.'
+        }
+        if ($relaxed.ExitCode -ne 0) {
+          throw "A failing rule exited $($relaxed.ExitCode) although no strict flag was passed: without the flag Luban reports a validation failure and keeps going."
+        }
+        if ($relaxed.Files.Count -eq 0) {
+          throw 'A failing rule stopped the export: no data file was written.'
+        }
+
+        $strict = Invoke-FailingFixture (Join-Path $env:RUNNER_TEMP 'fixture-data-failing-rule-strict') @($strictFlag)
+        Write-Host $strict.Output
+        if ($strict.Output -notmatch $marker) {
+          throw "The failing rule was not reported with $strictFlag."
+        }
+        if ($strict.ExitCode -eq 0) {
+          throw "A failing rule exited 0 although $strictFlag was passed: the failure never reached Luban's own bookkeeping."
+        }
+        if ($strict.Files.Count -eq 0) {
+          throw "The export wrote no data file with $strictFlag, although a validation failure is not supposed to stop it."
+        }
+
+        Write-Host "Luban ${{ inputs.luban-version }}: a failing rule is reported, keeps the run going, and turns into exit 1 only under $strictFlag."

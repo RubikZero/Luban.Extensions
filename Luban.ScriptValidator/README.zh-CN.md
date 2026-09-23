@@ -27,11 +27,19 @@ dotnet build .\Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=tru
 
 多个目录用 `;` 分隔。相对目录以 Luban 命令的当前工作目录为基准。所有 `*.lua` 文件会被递归加载，顺序按路径确定。必须存在一个数据目标（`-d bin`、`-d json` 等），这与普通导出本身的要求一致。
 
-Lua 规则在 Luban 加载完全部表数据、且数据目标装配完成之后运行，但在 `OutputSaver` 写出文件之前。规则目录缺失、Lua 脚本非法、或任何 `fail` / `expect` 失败都会抛出导出错误，使 Luban 以非零退出码结束。Lua 校验失败**不依赖** `#lua` schema 标签或 `--validationFailAsError`。
+Lua 规则在 Luban 加载完全部表数据、且数据目标装配完成之后运行，但在 `OutputSaver` 写出文件之前。规则失败、或规则根本无法加载，都会按「Luban 校验失败」的统一方式上报；规则仍然是显式开启的（`-x dataPostprocess=luaValidator`），不需要 `#lua` schema 标签。
 
 它是数据后处理器（data postprocess），而 Luban **保存的就是后处理器交回去的那份清单**：本扩展把每个导出文件原样透传，所以开启校验不会改变任何产物内容。
 
-规则失败同样是非破坏性的：运行会在到达数据保存器之前中止，上一次运行的数据文件**逐字节保持原样**——不删除、也不留半份。唯一的例外是代码目标：Luban 让它在独立任务里保存，不与数据阶段互相等待，因此失败的那次运行仍可能留下新写的代码、旁边却是旧的数据。修好规则重跑即可；若要求代码与数据同时更新，就先做一次校验：`-x outputSaver=null` 的那次运行什么都不写、但照样执行规则，只有它以 `0` 退出后再开始真正的生成。
+校验失败的行为与 Luban 内置校验器**完全一致**：每条违规都记为一条 ERROR 并登记进 Luban 的校验失败簿记；运行继续、产物照常写出；退出码在管线末尾由严格模式开关决定——4.x 是 `--validationFailAsError`，5.x 是 `--strict`：
+
+```powershell
+dotnet <LubanDir>\Luban.dll -t client -c cs-bin -d bin --conf luban.conf `
+  --validationFailAsError `
+  -x dataPostprocess=luaValidator -x luaValidator.scriptDir=..\Rules
+```
+
+不加这个开关时，规则失败会照常上报、但进程仍以 `0` 退出——和 `#ref`、`path` 标签校验失败时的行为一样。反过来，把校验器接错（没给 `luaValidator.scriptDir`、目录不存在、目录里没有 `*.lua`）属于用法错误，两种情况都以退出码 `1` 中止。
 
 还要注意：陈旧文件被清除**不是**开启校验导致的。只要某个目录**会被写入**，Luban 的 `local` 输出保存器每次运行都会清空它，有没有后处理器都一样；因此不要把手工维护的文件放进 `outputDataDir` 或 `outputCodeDir`。
 
@@ -193,7 +201,7 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 
 `tests/SmokeRules/` 里是一条只检查 API 可达的规则。
 
-`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张带 `path` 标签字段的表（让路径校验器参与同一次运行），配一条覆盖全部取值写法的规则：
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张带 `path` 标签字段的表（让路径校验器参与同一次运行），配一条覆盖全部取值写法的规则；`failing-rules/` 里则是一条故意失败的规则：
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
@@ -208,7 +216,7 @@ dotnet <LubanDir>\Luban.dll -t all -d bin `
 
 "写到真实目录"是这项检查的一部分而不是点缀：Luban 保存的就是后处理器交回的清单，所以一个只做校验的后处理器会让输出目录空着、却依然以 `0` 退出。
 
-由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出与产物**而不是退出码：上面这次运行只有在路径校验器于**第二个**根目录下找到 `assets/sword.txt` 时才算通过；[共用 action](../.github/actions/build-against-luban/action.yml) 还会把第二个根目录去掉再跑一次，确认校验器此时会报出该字段。
+由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出与产物**而不是退出码：[共用 action](../.github/actions/build-against-luban/action.yml) 会核对「路径校验器在两个根目录中的**第二个**下找到了 `assets/sword.txt`」、只剩不可能的那个根目录时会报出该字段、规则恰好执行一次、每个导出文件都存在；并用 `failing-rules/` 核对「失败的规则会被上报、运行继续、产物照常写出、且只有该 Luban 版本的严格模式开关才会把它变成退出码 `1`」。
 
 ## 许可
 

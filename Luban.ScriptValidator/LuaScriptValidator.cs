@@ -1,6 +1,10 @@
 using Luban;
+using Luban.Datas;
+using Luban.Defs;
 using Luban.PostProcess;
+using Luban.Types;
 using Luban.Utils;
+using Luban.Validator;
 using MoonSharp.Interpreter;
 
 namespace Luban.ScriptValidator;
@@ -60,7 +64,13 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
             throw new InvalidOperationException($"Lua validation requires -x {OptionFamily}.{ScriptDirOption}=<directory>.");
         }
 
-        if (GenerationContext.Current.GetOrAddUniqueObject(ExecutionKey, () => this) != this)
+        // The pipeline calls the manifest overload and, through it, the per-file
+        // overload, and Luban hands the same postprocessor instance to every call.
+        // A fresh probe object is what separates "I stored this just now" from
+        // "someone already stored theirs"; comparing against `this` cannot, and
+        // would run the rules once per exported file.
+        object probe = new();
+        if (GenerationContext.Current.GetOrAddUniqueObject(ExecutionKey, () => probe) != probe)
         {
             return;
         }
@@ -85,7 +95,30 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
 
         if (failures.Count > 0)
         {
-            throw new InvalidOperationException($"Lua validation failed with {failures.Count} error(s).");
+            Logger.Error("[lua validator] {0} error(s) in {1} rule file(s).", failures.Count, scriptFiles.Count);
+
+            // Luban treats a validator failure as a report, not as an abort: the
+            // run continues, the output is written, and --validationFailAsError
+            // (4.x) or --strict (5.x) decides the exit code at the end of the
+            // pipeline. Recording the failure here is what makes Lua rules behave
+            // exactly like the built-in validators.
+            GenerationContext.Current.LogValidatorFail(FailureRecord);
+        }
+    }
+
+    // GenerationContext.LogValidatorFail takes an IDataValidator, and all it does
+    // with it is remember that a validation failed, so a no-op validator is the
+    // whole adapter.
+    private static readonly IDataValidator FailureRecord = new LuaValidationFailure();
+
+    private sealed class LuaValidationFailure : DataValidatorBase
+    {
+        public override void Compile(DefField field, TType type)
+        {
+        }
+
+        public override void Validate(DataValidatorContext ctx, TType type, DType data)
+        {
         }
     }
 

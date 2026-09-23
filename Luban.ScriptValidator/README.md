@@ -39,23 +39,30 @@ loaded recursively in deterministic path order. A data target (`-d bin`, `-d
 json`, and so on) must be present, as is already the case for ordinary exports.
 
 Lua rules run after Luban has loaded all table data and after data targets have
-been assembled, but before `OutputSaver` writes generated files. A missing rule
-directory, an invalid Lua script, or any `fail` / `expect` failure throws an
-export error and stops Luban with a non-zero exit code. No `#lua` schema tag or
-`--validationFailAsError` dependency is required for Lua failures.
+been assembled, but before `OutputSaver` writes generated files. A rule that fails,
+or one that cannot be loaded at all, is reported the same way Luban reports any
+validation failure, so the rules stay opt-in through `-x dataPostprocess=luaValidator`
+and need no `#lua` schema tag.
 
 It is a data postprocessor, and Luban **saves the manifest a postprocessor hands
 back**: this extension passes every exported file through unchanged, so enabling
 validation never changes the generated output.
 
-A failed rule is non-destructive in the same way. The run stops before the data
-saver is reached, so the data files of the previous run stay exactly as they were:
-nothing is deleted, nothing is half-written. Code targets are the exception —
-Luban processes them in a task that saves independently of the data stage, so a
-failed run can still leave freshly written code beside the previous data files.
-Fix the rule and run again. When code and data have to move together, validate
-first: a run with `-x outputSaver=null` writes nothing at all while still running
-the rules, so generation can start only once that run exits `0`.
+Failures behave exactly like Luban's own validators. Every violation is logged as
+an error and recorded in Luban's validation bookkeeping; the run continues and the
+export is written as usual; the exit code is decided at the end of the pipeline by
+the strict flag — `--validationFailAsError` on 4.x, `--strict` on 5.x:
+
+```powershell
+dotnet <LubanDir>\Luban.dll -t client -c cs-bin -d bin --conf luban.conf `
+  --validationFailAsError `
+  -x dataPostprocess=luaValidator -x luaValidator.scriptDir=..\Rules
+```
+
+Without that flag a failing rule is reported and the run still exits `0`, exactly
+like a failing `#ref` or `path` tag. Setting the validator up wrongly — no
+`luaValidator.scriptDir`, a directory that does not exist, or a directory holding
+no `*.lua` file — is a usage error and aborts the run with exit code `1` either way.
 
 Note that stale files are not removed *because* validation is enabled: within a
 directory that is written, Luban's `local` output saver clears it on every run,
@@ -276,8 +283,8 @@ interop module is removed as well, so `dynamic` is `nil`.
 
 `tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
 no Excel and no game data — with one table of each shape, a table carrying a
-`path`-tagged field so the path validator takes part in the same run, and a rule
-that exercises every lookup form:
+`path`-tagged field so the path validator takes part in the same run, a rule that
+exercises every lookup form, and `failing-rules/` with a rule that fails on purpose:
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
@@ -297,11 +304,13 @@ manifest the postprocessor returns, so a postprocessor that only validates would
 leave the output directory empty while still exiting `0`.
 
 Because Luban logs a failed validation without failing the run, the fixture's
-verdict is its output and its exported files, not its exit code: the run above
-passes only if the path validator found `assets/sword.txt` under the *second* root,
-and [the shared action](../.github/actions/build-against-luban/action.yml) repeats
-the run with that second root removed to confirm the validator then reports the
-field.
+verdict is its output and its exported files, not its exit code:
+[the shared action](../.github/actions/build-against-luban/action.yml) checks that
+the path validator found `assets/sword.txt` under the *second* of two roots and
+reports the field when only the impossible root is left, that the rules ran exactly
+once, that every exported file exists, and — using `failing-rules/` — that a failing
+rule is reported, keeps the run going, still writes the export, and becomes exit
+code `1` only under the strict flag of that Luban version.
 
 ## License
 
