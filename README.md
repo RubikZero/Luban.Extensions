@@ -90,6 +90,41 @@ Note that deployment targets a Luban installation, which is normally a separate
 repository, so a build with `-p:DeployLubanExtensions=true` modifies that working
 tree.
 
+## Releases
+
+A release is cut by pushing a tag to `master`:
+
+```powershell
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The tag has to be a lowercase `v` followed by three dot-separated numbers, and its
+commit has to be reachable from `master`. Anything else stops the workflow without
+publishing: a tag such as `v1.2` or `V1.2.3` never starts it, and a well-formed tag
+that is not on `master` fails the first step with an explanation.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) then:
+
+1. downloads the pinned Luban release and uses the directory holding
+   `Luban.Core.dll` as `LubanDir`,
+2. builds the solution with the tag as the assembly version and deploys the
+   extensions into that downloaded Luban,
+3. runs [`Luban.ScriptValidator/tests/Fixture`](Luban.ScriptValidator/tests/Fixture)
+   through Luban, which proves the extension loads and works on a clean machine
+   rather than merely compiling,
+4. attaches a zip of the extension DLLs to a GitHub Release.
+
+The Luban version the build is pinned to is `LUBAN_VERSION` at the top of the
+workflow. Keep it in step with the Luban installation the extensions are deployed
+into, since it decides which Luban API they compile against.
+
+Because the release build stamps the tag into the assembly version, deploying the
+released DLLs into a Luban that already lists `1.0.0.0` adds a second
+`Luban.deps.json` entry rather than replacing it. That is harmless — the deployer
+only ever adds entries — but it is why releasing and deploying locally can leave a
+few extra lines behind.
+
 ## Adding an extension
 
 1. Create the project with `<AssemblyName>Luban.<Something></AssemblyName>` and
@@ -112,6 +147,7 @@ for the MoonSharp example.
 ## Repository layout
 
 ```text
+.github/workflows/release.yml    Builds and publishes a Release from a vX.Y.Z tag
 Directory.Build.props.example    Template for the untracked machine-local paths
 Directory.Build.targets          Tracked, machine-independent build settings
 LICENSE                          MIT license of this repository

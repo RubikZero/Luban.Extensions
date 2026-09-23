@@ -65,6 +65,28 @@ dotnet build Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
 
 注意：部署的目标是 Luban 安装目录，而它通常属于另一个仓库，因此带 `-p:DeployLubanExtensions=true` 的构建会修改那个仓库的工作区。
 
+## 发布
+
+推送一个 tag 到 `master` 即触发发布：
+
+```powershell
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+tag 必须是小写 `v` 加三段以点分隔的数字，且其提交必须能从 `master` 到达。其余情况都不会发布：`v1.2`、`V1.2.3` 这类 tag 根本不会启动流程；格式正确但不在 `master` 上的 tag 会在第一步失败并给出原因。
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) 随后会：
+
+1. 下载固定版本的 Luban 发行包，并以包含 `Luban.Core.dll` 的目录作为 `LubanDir`；
+2. 以 tag 作为程序集版本构建解决方案，并把扩展部署进那份下载下来的 Luban；
+3. 用 Luban 跑一遍 [`Luban.ScriptValidator/tests/Fixture`](Luban.ScriptValidator/tests/Fixture)——这验证的是「扩展在一台干净机器上真的能加载并工作」，而不只是「能编译」；
+4. 把扩展 DLL 打包成 zip，附到 GitHub Release 上。
+
+构建所固定的 Luban 版本是工作流顶部的 `LUBAN_VERSION`。它决定了扩展编译时对照的 Luban API，因此要与实际部署扩展的那个 Luban 安装保持一致。
+
+由于发布构建会把 tag 戳进程序集版本，把发布产物部署进一个已登记 `1.0.0.0` 的 Luban 时，`Luban.deps.json` 里会**多出**一条而非替换原有条目。这没有危害——部署器本来就只增不改——但这也是为什么「发布」与「本地部署」混用会在清单里留下多余几行。
+
 ## 新增一个扩展
 
 1. 创建工程，设置 `<AssemblyName>Luban.<Something></AssemblyName>` 与 `<IsLubanExtension>true</IsLubanExtension>`。
@@ -79,6 +101,7 @@ dotnet build Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=true
 ## 仓库结构
 
 ```text
+.github/workflows/release.yml    由 vX.Y.Z tag 构建并发布 Release
 Directory.Build.props.example    本机路径配置的模板（生成的文件不受跟踪）
 Directory.Build.targets          受跟踪的、与机器无关的构建配置
 LICENSE                          本仓库的 MIT 许可
