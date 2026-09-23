@@ -1,0 +1,5 @@
+##var,id,kind,level,name
+##type,int,string,int,string
+,7,alpha,10,alpha-ten
+,8,alpha,20,alpha-twenty
+,9,beta,10,beta-ten

@@ -1,0 +1,3 @@
+##var,id,kind,level,name
+##type,int,string,int,string
+,99,solo,1,the-only-row

@@ -1,0 +1,20 @@
+<module name="test">
+    <bean name="Row">
+        <var name="id" type="int"/>
+        <var name="kind" type="string"/>
+        <var name="level" type="int"/>
+        <var name="name" type="string"/>
+    </bean>
+
+    <!-- single-field primary key -->
+    <table name="TbSingle" value="Row" index="id" mode="map" input="single.csv"/>
+
+    <!-- several independent keys, each unique on its own -->
+    <table name="TbMulti" value="Row" index="id,name" mode="list" input="multi.csv"/>
+
+    <!-- one union key: only the combination is unique -->
+    <table name="TbUnion" value="Row" index="kind+level" mode="list" input="union.csv"/>
+
+    <!-- singleton -->
+    <table name="TbOne" value="Row" mode="one" input="one.csv"/>
+</module>

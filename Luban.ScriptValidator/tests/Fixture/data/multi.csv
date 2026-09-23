@@ -1,0 +1,4 @@
+##var,id,kind,level,name
+##type,int,string,int,string
+,1,alpha,10,one
+,2,beta,20,two
