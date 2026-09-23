@@ -46,13 +46,21 @@ export error and stops Luban with a non-zero exit code. No `#lua` schema tag or
 
 It is a data postprocessor, and Luban **saves the manifest a postprocessor hands
 back**: this extension passes every exported file through unchanged, so enabling
-validation never changes the generated output. The only thing that changes the
-outcome is a failure — Luban then stops before saving, so a broken export is never
-left on disk.
+validation never changes the generated output.
 
-Note also that stale files are not removed *because* validation is enabled: Luban's
-`local` output saver clears `outputDataDir` on every run, with or without a
-postprocessor, so do not keep hand-written files in that directory.
+A failed rule is non-destructive in the same way. The run stops before the data
+saver is reached, so the data files of the previous run stay exactly as they were:
+nothing is deleted, nothing is half-written. Code targets are the exception —
+Luban processes them in a task that saves independently of the data stage, so a
+failed run can still leave freshly written code beside the previous data files.
+Fix the rule and run again. When code and data have to move together, validate
+first: a run with `-x outputSaver=null` writes nothing at all while still running
+the rules, so generation can start only once that run exits `0`.
+
+Note that stale files are not removed *because* validation is enabled: within a
+directory that is written, Luban's `local` output saver clears it on every run,
+with or without a postprocessor, so do not keep hand-written files inside
+`outputDataDir` or `outputCodeDir`.
 
 ## Rule API
 
