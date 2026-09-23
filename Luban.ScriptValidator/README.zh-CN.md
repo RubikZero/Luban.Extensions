@@ -54,9 +54,10 @@ end
 | `cfg.enumItems("<type>")` | 该枚举全部项的数组，元素为 `{ name, value, alias, comment }`。 |
 | `cfg.enums.<type>.<ITEM>` | 预构建的枚举常量表，例如 `cfg.enums.ELevelType.Elite == 2`。 |
 | `cfg.ref(row, "<field>")` | 声明了 `#ref` 的字段所引用的行，或 `nil`。 |
-| `cfg.ref("<table>", key)` | 主键为 `key` 的行，或 `nil`。 |
-| `cfg.keyed("<table>")` | 「主键 → 行」的只读映射；表没有单字段主键时返回 `nil`。 |
-| `cfg.tableInfo("<table>")` | `{ name, fullName, mode, index, indexFields, keyType, count, loaded, keyed }`。 |
+| `cfg.ref("<table>", key...)` | 按索引命中的行，或 `nil`。单一主键表传一个值，联合主键表每个字段传一个值。 |
+| `cfg.keyed("<table>"[, "<field>", ...])` | 「索引 → 行」的只读映射。联合索引按每个字段嵌套一层；索引有歧义或不存在时返回 `nil`。 |
+| `cfg.singleton("<table>")` | `mode="one"` 单例表的那一行，或 `nil`。 |
+| `cfg.tableInfo("<table>")` | `{ name, fullName, mode, index, indexFields, indexes, unionIndex, multiKey, keyType, count, loaded, keyed }`。 |
 | `row.__source` | 该行的 Luban 来源文件位置。 |
 | `row.__autoIndex` | 该行的 Luban 记录序号。 |
 | `row.__type` | 具体 bean 类型，例如 `game.Level`。 |
@@ -112,33 +113,60 @@ local item = cfg.ref("TbItem", 10001)
 - 只有**当前导出目标内**的表才能解析，因为 Luban 只加载了这些数据。
 - 返回的行与 `cfg.tables.X` 中的是**同一个对象**，因此规则可以用 `==` 直接比较行本身，而不必比较主键。
 
-### 按主键取行
+### 按索引取行
 
-`cfg.tables.X` 是纯粹的**行数组**，因此 `cfg.tables.X[id]` 是按**位置**取值：id 超过行数时返回 `nil`；而如果某个整数主键恰好落在 `1..#rows` 区间内，它会静默返回**另一行**。要按主键取行请用 `cfg.keyed`，它对应 Luban 生成代码里的 `DataMap`：
+`cfg.tables.X` 是纯粹的**行数组**，因此 `cfg.tables.X[key]` 是按**位置**取值：key 超过行数时返回 `nil`；而如果某个整数主键恰好落在 `1..#rows` 区间内，它会静默返回**另一行**。要按索引取行请用 `cfg.keyed`，它对应 Luban 生成代码里的 `DataMap`、`GetByXxx` 与 `Get(k1, k2)`。
+
+Luban 的表有四种形态，`cfg.keyed` 一一对应：
+
+| 表形态 | 声明方式 | 取行写法 |
+| --- | --- | --- |
+| 单一主键 | `mode="map"`、`index="id"` | `cfg.keyed("TbItem")[id]` |
+| 多个独立主键 | `mode="list"`、`index="id,name"` | `cfg.keyed("TbX", "id")[id]` 或 `cfg.keyed("TbX", "name")[name]`——每个键单独就能唯一确定一行 |
+| 一个联合主键 | `mode="list"`、`index="kind+level"` | `cfg.keyed("TbX")[kind][level]`——每个字段一层嵌套，必须组合才唯一 |
+| 单例表 | `mode="one"` | `cfg.singleton("TbCommon")` |
 
 ```lua
-local levels = cfg.keyed("TbLevel")   -- 首次使用时构建，之后缓存
+local levels = cfg.keyed("TbLevel")        -- 首次使用时构建，之后缓存
+local items  = cfg.keyed("TbItem", "name") -- 多主键表里指定某一个索引
+local grid   = cfg.keyed("TbGrid")         -- 唯一索引是联合主键，因此是嵌套结构
+local common = cfg.singleton("TbCommon")
 
 for _, row in ipairs(cfg.tables.TbMission) do
     expect(levels[tonumber(row.level_id)] ~= nil,
         string.format("%s: level_id %s does not exist", row.__source, row.level_id))
 end
+
+local cell = grid["alpha"][10]
 ```
 
-`levels[10001]` 与 `levels["10001"]` 都能命中，因为 `long` 键到达 Lua 时是字符串。对于没有单字段主键的表（列表表与单例表）、或不在当前导出目标内的表，`cfg.keyed` 返回 `nil` 并输出一条警告。这样取到的行与 `cfg.tables.X` 中的是同一批对象。
+以下几条始终成立：
+
+- **不写字段名**的 `cfg.keyed("<table>")` 只在选择唯一时可用——这包括「只有一个联合索引」的情况。表声明了多个独立索引时它会返回 `nil`，并输出一条指明「请指定字段」的警告。
+- 指定一个不属于联合索引的字段 → 扁平映射；把联合索引的全部字段都写出 → 与不写参数得到同样的嵌套映射。
+- `cfg.ref("<table>", key...)` 是一次性写法：单一主键表传一个值，联合主键表每个字段传一个值（`cfg.ref("TbGrid", "alpha", 10)`）。对于有多个独立索引的表，它是歧义的，返回 `nil`；请改用 `cfg.keyed(table, "<field>")[key]`。
+- 整数键用数字或字符串都可以，因为 `long` 字段到达 Lua 时是字符串：`levels[10001]` 与 `levels["10001"]` 是同一行。
+- 所有取值返回的都是与 `cfg.tables.X` **相同的行对象**，因此可以用 `==` 直接比较行；嵌套映射的每一层都是只读的。
+- 单例表没有键控视图；不在当前导出目标内的表根本无法建索引。
 
 `cfg.tableInfo("<table>")` 用来查看一张表到底是什么，这是排查「为什么取不到值」最快的手段：
 
 ```lua
-local info = cfg.tableInfo("TbLevel")
+local info = cfg.tableInfo("TbGrid")
 -- info.mode        -> "map" | "list" | "one"
--- info.index       -> "id"
--- info.indexFields -> { "id" }
--- info.keyType     -> "int"
+-- info.index       -> "kind+level"
+-- info.indexFields -> { "kind", "level" }
+-- info.indexes     -> { { spec = "kind+level", fields = { "kind", "level" },
+--                         keyTypes = { "string", "int" }, union = true } }
+-- info.unionIndex  -> true    -- 一个索引横跨多个字段
+-- info.multiKey    -> false   -- 多个互相独立的索引
+-- info.keyType     -> "int"   -- 仅对单一主键表有意义
 -- info.count       -> 128
 -- info.loaded      -> true
 -- info.keyed       -> true
 ```
+
+`cfg.table("<名字>")` 与 `cfg.keyed` / `cfg.ref` / `cfg.tableInfo` 一样，短名与带模块的全名都能接受；而 `cfg.tables` 本身只以规范全名为键，因此枚举它不会出现重复的表。
 
 ### 字段名与取值
 
@@ -154,6 +182,22 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 另外，`pairs(row)` 还会给出 `_type`、`__source`、`__autoIndex` 这几个元数据键；写「遍历所有字段」这类规则时需要排除它们。
 
 解释器运行在 MoonSharp 的软沙箱中。规则只能拿到 `cfg`、`fail`、`expect` 这几个 API。文件、进程与包加载类 API（`io`、`debug`、`require`、`dofile`、`loadfile`、`load`、`loadstring`）都不存在；`os` 只暴露 `clock` / `date` / `difftime` / `time`；可能绕过只读代理的可变助手（`rawget`、`rawset`、`getmetatable`、`setmetatable`、`table.insert`、`table.remove`、`table.sort`）已被移除。MoonSharp 的 CLR 互操作模块同样被移除，因此 `dynamic` 为 `nil`。
+
+## 测试
+
+`tests/SmokeRules/` 里是一条只检查 API 可达的规则。
+
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，配一条覆盖全部取值写法的规则：
+
+```powershell
+dotnet <LubanDir>\Luban.dll -t all -d bin `
+  --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
+  -x outputSaver=null `
+  -x dataPostprocess=luaValidator `
+  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules
+```
+
+它会打印结果并以 `0` 退出。日志里的警告是刻意构造的「这张表不能这样取索引」场景，每条都写明了原因。
 
 ## 许可
 

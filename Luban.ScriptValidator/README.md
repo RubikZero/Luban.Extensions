@@ -69,9 +69,10 @@ Available globals:
 | `cfg.enumItems("<type>")` | Array of `{ name, value, alias, comment }` for every item of the enum. |
 | `cfg.enums.<type>.<ITEM>` | Pre-built enum constant table, e.g. `cfg.enums.ELevelType.Elite == 2`. |
 | `cfg.ref(row, "<field>")` | Row referenced by a field declared with `#ref`, or `nil`. |
-| `cfg.ref("<table>", key)` | Row whose primary key is `key`, or `nil`. |
-| `cfg.keyed("<table>")` | Read-only map of primary key to row, or `nil` when the table has no single-field key. |
-| `cfg.tableInfo("<table>")` | `{ name, fullName, mode, index, indexFields, keyType, count, loaded, keyed }`. |
+| `cfg.ref("<table>", key...)` | Row matching the index, or `nil`. One value for a single-key table, one per field for a union key. |
+| `cfg.keyed("<table>"[, "<field>", ...])` | Read-only map of index to row. Nested by one level per field for a union index, or `nil` when the index is ambiguous or missing. |
+| `cfg.singleton("<table>")` | The only row of a `mode="one"` table, or `nil`. |
+| `cfg.tableInfo("<table>")` | `{ name, fullName, mode, index, indexFields, indexes, unionIndex, multiKey, keyType, count, loaded, keyed }`. |
 | `row.__source` | Luban source file location for the row. |
 | `row.__autoIndex` | Luban record index. |
 | `row.__type` | Concrete bean type, e.g. `game.Level`. |
@@ -144,42 +145,76 @@ local item = cfg.ref("TbItem", 10001)
 - The returned row is the **same object** as the one in `cfg.tables.X`, so a rule
   can compare rows by identity with `==` instead of comparing keys.
 
-### Looking rows up by primary key
+### Looking rows up by key
 
-`cfg.tables.X` is a plain **array of rows**, so `cfg.tables.X[id]` indexes by
-*position*: it returns `nil` for any id larger than the row count, and would
+`cfg.tables.X` is a plain **array of rows**, so `cfg.tables.X[key]` indexes by
+*position*: it returns `nil` for any key larger than the row count, and would
 silently return an unrelated row if an integer key happened to fall inside
-`1..#rows`. To look a row up by its primary key, use `cfg.keyed`, which mirrors
-the `DataMap` of Luban's generated code:
+`1..#rows`. Use `cfg.keyed` to look a row up by its index instead; it mirrors the
+`DataMap`, `GetByXxx` and `Get(k1, k2)` APIs of Luban's generated code.
+
+Luban gives a table one of four shapes, and `cfg.keyed` follows each of them:
+
+| Table | Declared as | How to read it |
+| --- | --- | --- |
+| Single key | `mode="map"`, `index="id"` | `cfg.keyed("TbItem")[id]` |
+| Several independent keys | `mode="list"`, `index="id,name"` | `cfg.keyed("TbX", "id")[id]` or `cfg.keyed("TbX", "name")[name]` — each key is unique on its own |
+| One union key | `mode="list"`, `index="kind+level"` | `cfg.keyed("TbX")[kind][level]` — one nesting level per field, unique only together |
+| Singleton | `mode="one"` | `cfg.singleton("TbCommon")` |
 
 ```lua
-local levels = cfg.keyed("TbLevel")   -- built on first use, then cached
+local levels = cfg.keyed("TbLevel")        -- built on first use, then cached
+local items  = cfg.keyed("TbItem", "name") -- a named index of a multi-key table
+local grid   = cfg.keyed("TbGrid")         -- nested, because its only index is a union
+local common = cfg.singleton("TbCommon")
 
 for _, row in ipairs(cfg.tables.TbMission) do
     expect(levels[tonumber(row.level_id)] ~= nil,
         string.format("%s: level_id %s does not exist", row.__source, row.level_id))
 end
+
+local cell = grid["alpha"][10]
 ```
 
-Both `levels[10001]` and `levels["10001"]` resolve, because `long` keys reach
-Lua as strings. `cfg.keyed` returns `nil`, and logs one warning, for a table
-without a single-field primary key (list and singleton tables) or for a table
-outside the current export target. Rows returned this way are the same objects as
-in `cfg.tables.X`.
+The rules that always hold:
+
+- `cfg.keyed("<table>")` with **no field name** works only when the choice is
+  unambiguous, which includes a single union index. A table with several
+  independent indexes returns `nil` and logs a warning telling you to name one.
+- Naming one field that is not part of a union index gives a flat map; naming
+  every field of a union index gives the same nested map as the no-argument form.
+- `cfg.ref("<table>", key...)` is the one-shot form. It takes one value for a
+  single-key table, and one value per field for a union-key table
+  (`cfg.ref("TbGrid", "alpha", 10)`). For a table with several independent indexes
+  it is ambiguous and returns `nil`; use `cfg.keyed(table, "<field>")[key]`.
+- Integer keys work as both numbers and strings, because `long` fields reach Lua
+  as strings: `levels[10001]` and `levels["10001"]` are the same row.
+- Every lookup returns the **same row objects** as `cfg.tables.X`, so rows can be
+  compared with `==`, and every level of a nested map is read-only.
+- A singleton has no keyed view, and a table outside the current export target
+  cannot be indexed at all.
 
 `cfg.tableInfo("<table>")` reports what a table actually is, which is the quickest
 way to find out why a lookup returns `nil`:
 
 ```lua
-local info = cfg.tableInfo("TbLevel")
+local info = cfg.tableInfo("TbGrid")
 -- info.mode        -> "map" | "list" | "one"
--- info.index       -> "id"
--- info.indexFields -> { "id" }
--- info.keyType     -> "int"
+-- info.index       -> "kind+level"
+-- info.indexFields -> { "kind", "level" }
+-- info.indexes     -> { { spec = "kind+level", fields = { "kind", "level" },
+--                         keyTypes = { "string", "int" }, union = true } }
+-- info.unionIndex  -> true    -- one index spanning several fields
+-- info.multiKey    -> false   -- several independent indexes
+-- info.keyType     -> "int"   -- only meaningful for a single-key table
 -- info.count       -> 128
 -- info.loaded      -> true
 -- info.keyed       -> true
 ```
+
+`cfg.table("<name>")` accepts the same short and module-qualified spellings as
+`cfg.keyed` / `cfg.ref` / `cfg.tableInfo`. `cfg.tables` itself stays keyed by the
+canonical full name only, so enumerating it never yields the same table twice.
 
 ### Field names and values
 
@@ -216,6 +251,25 @@ only `clock` / `date` / `difftime` / `time`, and the mutation helpers that could
 bypass the read-only proxies (`rawget`, `rawset`, `getmetatable`, `setmetatable`,
 `table.insert`, `table.remove`, `table.sort`) are removed. MoonSharp's CLR
 interop module is removed as well, so `dynamic` is `nil`.
+
+## Tests
+
+`tests/SmokeRules/` holds a rule that only checks the API is reachable.
+
+`tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
+no Excel and no game data — with one table of each shape and a rule that exercises
+every lookup form:
+
+```powershell
+dotnet <LubanDir>\Luban.dll -t all -d bin `
+  --conf Luban.ScriptValidator/tests/Fixture/luban.conf `
+  -x outputSaver=null `
+  -x dataPostprocess=luaValidator `
+  -x luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules
+```
+
+It prints its results and exits `0`. The warnings it logs are the deliberate
+"this table cannot be indexed that way" cases, each naming the reason.
 
 ## License
 
