@@ -1,4 +1,4 @@
-﻿# Luban.MultiRootPathValidator
+# Luban.MultiRootPathValidator
 
 A drop-in extension for Luban's built-in `path` validator. It keeps the existing validator syntax (`path=unity`, `path=normal;...`, etc.) but allows validation against multiple project/resource roots.
 
@@ -6,11 +6,11 @@ A drop-in extension for Luban's built-in `path` validator. It keeps the existing
 
 Luban scans DLLs next to its executable whose file names contain `Luban`. Assemblies marked with `[assembly: RegisterBehaviour]` are scanned for custom behaviours. This extension registers another validator named `path` with a higher priority, so it replaces the built-in `path` validator without modifying Luban itself.
 
-With the .NET 8 Luban build, the extension must also be listed in `Luban.deps.json`; otherwise the runtime cannot resolve an extension discovered by name. `build.ps1 -Deploy` copies the DLL and updates that manifest together. Do not copy just the DLL manually.
+With the .NET 8 Luban build, the extension must also be listed in `Luban.deps.json`; otherwise the runtime cannot resolve an extension discovered by name. The shared `Luban.Extension.Deployer` tool copies the DLL and updates that manifest together (see [Build](#build)). Do not copy just the DLL manually.
 
 ## Requirements
 
-- Luban built for .NET 8 (current main branch)
+- Luban built for .NET 8 (verified against Luban 4.5.0)
 - .NET 8 SDK to build this extension
 - `Luban.Core.dll` and `NLog.dll` in the Luban executable directory
 
@@ -33,8 +33,14 @@ dotnet build ..\Luban.Extensions.sln -c Release -m:1 `
   -p:LubanDir="D:\Tools\Luban"
 ```
 
-`build.ps1` is retained only for backward compatibility. New workflows should
-use the solution command above.
+### Deployment artifacts
+
+The deployer writes exactly two things into `LubanDir`: the extension DLLs and
+the matching entries in `Luban.deps.json`. It never creates a per-extension
+`<Extension>.deps.json` next to `Luban.dll`, and it never removes files. A
+standalone `Luban.MultiRootPathValidator.deps.json` inside a Luban installation
+is therefore a leftover from an older manual deployment and can be deleted;
+only `Luban.deps.json` is read at run time.
 
 ### Adding another extension
 
@@ -133,7 +139,7 @@ The only semantic change is that a path succeeds when **any** configured root co
 - Empty root entries are ignored.
 - Duplicate roots are removed (case-insensitively on Windows).
 - Relative roots keep normal .NET/Luban process-relative path semantics.
-- If no `rootDirs`/`rootDir` option is provided, path validation is disabled, matching Luban's built-in behaviour.
+- If no `rootDirs`/`rootDir` option is provided, path validation is disabled, matching Luban's built-in behaviour. One warning is logged and the run still succeeds, so a missing root option silently skips every path check.
 
 ## License note
 
