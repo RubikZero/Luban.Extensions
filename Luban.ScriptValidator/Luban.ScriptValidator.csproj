@@ -24,6 +24,13 @@
       <HintPath>$(LubanDir)\NLog.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Luban.TemplateExtensions.TypeTemplateExtension derives from Scriban's
+         ScriptObject, so the ref-model helpers need Scriban at compile time.
+         It ships with Luban, so it is never deployed with the extension. -->
+    <Reference Include="Scriban">
+      <HintPath>$(LubanDir)\Scriban.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
