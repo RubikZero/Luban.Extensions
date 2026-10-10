@@ -155,6 +155,15 @@ runs:
           throw "The Lua rules produced their assertions $sentinelCount time(s) instead of once."
         }
 
+        # An enum may be written in a sheet by item name or by its numeric value;
+        # the fixture spells row 2 as "2", so resolving it to the item name is what
+        # proves the numeric spelling still reaches the same item.
+        $enumSentinel = "\[fx\] cfg\.enumName\('UnitType', '2'\) = Monster"
+        $enumCount = ([regex]::Matches($output, $enumSentinel)).Count
+        if ($enumCount -ne 1) {
+          throw "The enum helpers resolved the numeric spelling $enumCount time(s) instead of once."
+        }
+
         # Column rules: their scripts are registered while the schema is compiled
         # and called once per tagged field per record, so each of these markers has
         # to appear exactly once. Together they prove that a rule reached the table

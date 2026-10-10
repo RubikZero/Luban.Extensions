@@ -553,18 +553,29 @@ internal sealed class LuaConfigData
         DefEnum resolvedEnum = defEnum!;
         if (!resolvedEnum.TryValueByNameOrAlias(text, out value))
         {
-            if (!resolvedEnum.IsFlags)
+            // A sheet may spell an enum by its numeric value — Luban accepts that
+            // when it loads the data — so the helpers have to accept it as well.
+            // For a plain enum the number has to name an item; for a flags enum any
+            // combination of bits is meaningful.
+            if (TryParseEnumNumber(text, out int numeric)
+                && (resolvedEnum.IsFlags || resolvedEnum.Items.Any(i => i.IntValue == numeric)))
+            {
+                value = numeric;
+            }
+            else if (!resolvedEnum.IsFlags)
             {
                 return false;
             }
-
-            try
+            else
             {
-                value = resolvedEnum.GetValueByNameOrAlias(text, '|');
-            }
-            catch (Exception)
-            {
-                return false;
+                try
+                {
+                    value = resolvedEnum.GetValueByNameOrAlias(text, '|');
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
             }
         }
 
@@ -572,6 +583,16 @@ internal sealed class LuaConfigData
         int resolvedValue = value;
         item = resolvedEnum.Items.FirstOrDefault(i => i.IntValue == resolvedValue);
         return true;
+    }
+
+    /// <summary>
+    /// Reads an enum written as a number, which is one of the spellings the data
+    /// loaders accept. Anything that is not a plain integer — an item name, a
+    /// flags expression, an empty cell — is not a number.
+    /// </summary>
+    private static bool TryParseEnumNumber(string text, out int value)
+    {
+        return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     private bool TryResolveEnumType(string? typeName, out DefEnum? defEnum)

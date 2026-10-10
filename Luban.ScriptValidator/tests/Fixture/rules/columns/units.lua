@@ -25,7 +25,10 @@ register{
     name = "unitRef",
     type = "int",
     validate = function(value, row, owner)
-        local unitType = owner ~= nil and owner.unit_type or nil
+        -- Sheets spell an enum by item name, alias or numeric value; canonicalise
+        -- before keying the mapping. TbUnit row 2 spells it as "2".
+        local raw = owner ~= nil and owner.unit_type or nil
+        local unitType = raw ~= nil and (cfg.enumName("UnitType", raw) or raw) or nil
         print(string.format("[fx-col] unitRef %s:%s", tostring(unitType), tostring(value)))
 
         local tableName = unitTables[unitType]

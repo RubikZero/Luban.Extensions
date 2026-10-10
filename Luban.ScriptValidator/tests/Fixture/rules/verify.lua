@@ -63,4 +63,13 @@ function validate()
     print("[fx] ===== field with a validator tag =====")
     local assets = cfg.keyed("TbAsset")
     print("[fx] cfg.keyed('TbAsset')[1].icon = " .. tostring(assets[1] and assets[1].icon))
+
+    -- An enum may be spelled by its item name, by an alias, or by its numeric
+    -- value, and the last one has to resolve to the same item as the first.
+    print("[fx] ===== enum spelled by number =====")
+    print("[fx] cfg.enumName('UnitType', 'Monster') = " .. tostring(cfg.enumName("UnitType", "Monster")))
+    print("[fx] cfg.enumName('UnitType', '2') = " .. tostring(cfg.enumName("UnitType", "2")))
+    print("[fx] cfg.enumValue('UnitType', '2') = " .. tostring(cfg.enumValue("UnitType", "2")))
+    print("[fx] cfg.enumName('UnitType', '99') = " .. tostring(cfg.enumName("UnitType", "99")))
+    print("[fx] cfg.enumValue('UnitType', '99') = " .. tostring(cfg.enumValue("UnitType", "99")))
 end

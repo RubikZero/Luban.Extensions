@@ -101,7 +101,7 @@ Available globals:
 | --- | --- |
 | `cfg.table("full.table.name")` | Array-like Lua table containing every loaded row. |
 | `cfg.tables["full.table.name"]` | Equivalent direct lookup. |
-| `cfg.enumValue("<type>", "<text>")` | Numeric value of the enum item named or aliased by `<text>`, or `nil`. |
+| `cfg.enumValue("<type>", "<text>")` | Numeric value of the enum item named, aliased or written as its numeric value by `<text>`, or `nil`. |
 | `cfg.enumName("<type>", "<text>")` | Item name of that enum item, or `nil`. |
 | `cfg.enumItem("<type>", "<text>")` | `{ name, value, alias, comment }` of that enum item, or `nil`. |
 | `cfg.enumItems("<type>")` | Array of `{ name, value, alias, comment }` for every item of the enum. |
@@ -138,6 +138,11 @@ the numeric value, and it is reachable under every type-name spelling — so
 `cfg.enums.ELevelType["精英"]` all resolve to the same number, and the three
 lookups return the same table. On a name/alias collision the item name wins. The
 tables are read-only, and an unknown type name yields `nil`.
+
+`cfg.enumValue`, `cfg.enumName` and `cfg.enumItem` accept all three spellings a
+sheet may use for an item — its name, its alias, or its numeric value — so a cell
+holding `2` resolves to the same item as one holding `Monster`, while a number no
+item carries is still `nil`.
 
 Use `cfg.enumItems("<type>")` when you need the item metadata rather than the
 value — for example to check that every item is reachable from somewhere:

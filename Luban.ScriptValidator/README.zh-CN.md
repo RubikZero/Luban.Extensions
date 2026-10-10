@@ -73,7 +73,7 @@ end
 | --- | --- |
 | `cfg.table("full.table.name")` | 包含全部已加载行的类数组 Lua 表。 |
 | `cfg.tables["full.table.name"]` | 等价的自接查找。 |
-| `cfg.enumValue("<type>", "<text>")` | `<text>` 所命名或别名的枚举项的**数值**，找不到返回 `nil`。 |
+| `cfg.enumValue("<type>", "<text>")` | `<text>` 所命名、别名或以数值写法给出的枚举项的**数值**，找不到返回 `nil`。 |
 | `cfg.enumName("<type>", "<text>")` | 该枚举项的**项名**，找不到返回 `nil`。 |
 | `cfg.enumItem("<type>", "<text>")` | 该枚举项的 `{ name, value, alias, comment }`，找不到返回 `nil`。 |
 | `cfg.enumItems("<type>")` | 该枚举全部项的数组，元素为 `{ name, value, alias, comment }`。 |
@@ -102,6 +102,8 @@ end
 ```
 
 常量表同时以**项名和别名**为键，都指向数值；并且在各种类型名拼写下都可达——`cfg.enums.ELevelType.Elite`、`cfg.enums["game.ELevelType"].Elite` 与 `cfg.enums.ELevelType["精英"]` 解析到同一个数值，而且这三种写法返回的是同一个表。项名与别名冲突时，项名优先。常量表是只读的，未知类型名返回 `nil`。
+
+`cfg.enumValue`、`cfg.enumName`、`cfg.enumItem` 都接受表格里可能出现的三种写法——**项名、别名、数值**——所以单元格里写 `2` 与写 `Monster` 会解析到同一个项；而没有任何项使用的数字仍然返回 `nil`。
 
 需要的是项的元数据而不是数值时，用 `cfg.enumItems("<type>")`——例如检查每个枚举项是否都被用到：
 
