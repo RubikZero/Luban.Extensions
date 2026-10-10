@@ -155,10 +155,21 @@ runs:
           throw "The Lua rules produced their assertions $sentinelCount time(s) instead of once."
         }
 
+        # Column rules: their scripts are registered while the schema is compiled
+        # and called once per tagged field per record, so each of these markers has
+        # to appear exactly once. They also prove that a rule reached the tables it
+        # looks up: TbUnit row 1 is a Hero and row 2 a Monster.
+        foreach ($marker in @('[fx-col] iconName sword', '[fx-col] unitRef 1001', '[fx-col] unitRef 2001')) {
+          $markerCount = ([regex]::Matches($output, [regex]::Escape($marker))).Count
+          if ($markerCount -ne 1) {
+            throw "The column rules produced '$marker' $markerCount time(s) instead of once."
+          }
+        }
+
         # One file per table in the fixture, none of them empty: this is what
         # proves the postprocessor passed the export through.
         $exported = @(Get-ChildItem $dataDir -Recurse -File -Filter '*.bytes' -ErrorAction SilentlyContinue)
-        foreach ($table in @('tbasset', 'tbmulti', 'tbone', 'tbsingle', 'tbunion')) {
+        foreach ($table in @('tbasset', 'tbhero', 'tbmonster', 'tbmulti', 'tbone', 'tbsingle', 'tbunion', 'tbunit')) {
           $file = $exported | Where-Object { $_.Name -like "*$table*" } | Select-Object -First 1
           if (-not $file) {
             throw "The export wrote no file for $table. Exported: $($exported.Name -join ', ')"
@@ -247,6 +258,10 @@ runs:
             '-x', "outputDataDir=$DataDir",
             '-x', 'dataPostprocess=luaValidator',
             '-x', 'luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/failing-rules',
+            # The schema attaches column rules too, and the default column
+            # directory follows the script directory, so point it at the passing
+            # rules: this run is about the failing export rule.
+            '-x', 'luaValidator.columnDir=Luban.ScriptValidator/tests/Fixture/rules/columns',
             '-x', "pathValidator.rootDirs=$fixtureRoot"
           ) + $ExtraArguments
           $text = dotnet "$env:LUBAN_DIR\Luban.dll" @arguments 2>&1 | Out-String
@@ -289,3 +304,89 @@ runs:
         $global:LASTEXITCODE = 0
 
         Write-Host "Luban ${{ inputs.luban-version }}: a failing rule is reported, keeps the run going, and turns into exit 1 only under $strictFlag."
+
+    - name: Check column rules
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        # Column rules differ from the export rules in every way that can break
+        # quietly: they are registered while the schema is compiled, they are
+        # attached by a tag, and a failure is reported during the validation phase.
+        # These runs check the three ways that goes wrong, all of which have to be
+        # loud rather than a silent skip.
+        $fixtureRoot = Join-Path $env:GITHUB_WORKSPACE 'Luban.ScriptValidator/tests/Fixture'
+        $marker = '\[lua-column-fail-fixture\] deliberate failure'
+
+        # Read the strict flag from Luban itself, as the step above does: 4.x calls
+        # it --validationFailAsError, 5.x --strict.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $help = dotnet "$env:LUBAN_DIR\Luban.dll" --help 2>&1 | Out-String
+        $ErrorActionPreference = $previousPreference
+        $strictFlag = if ($help -match '(?m)^\s*--strict\b') { '--strict' }
+                      elseif ($help -match 'validationFailAsError') { '--validationFailAsError' }
+                      else { throw 'This Luban build offers neither --strict nor --validationFailAsError.' }
+
+        function Invoke-ColumnFixture([string]$Name, [string[]]$ExtraArguments) {
+          $dataDir = Join-Path $env:RUNNER_TEMP "fixture-data-$Name"
+          if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
+          $arguments = @(
+            '-t', 'all', '-d', 'bin',
+            '--conf', 'Luban.ScriptValidator/tests/Fixture/luban.conf',
+            '-x', "outputDataDir=$dataDir",
+            '-x', "pathValidator.rootDirs=$fixtureRoot",
+            '-x', 'luaValidator.scriptDir=Luban.ScriptValidator/tests/Fixture/rules'
+          ) + $ExtraArguments
+          $text = dotnet "$env:LUBAN_DIR\Luban.dll" @arguments 2>&1 | Out-String
+          [pscustomobject]@{
+            ExitCode = $LASTEXITCODE
+            Output   = $text
+            Files    = @(Get-ChildItem $DataDir -Recurse -File -Filter '*.bytes' -ErrorAction SilentlyContinue)
+          }
+        }
+
+        # 1. A failing column rule is reported like any other validation failure, and
+        #    only the strict flag turns it into a non-zero exit code.
+        $relaxed = Invoke-ColumnFixture 'column-rule' @('-x', 'luaValidator.columnDir=Luban.ScriptValidator/tests/Fixture/columns-failing')
+        Write-Host $relaxed.Output
+        if ($relaxed.Output -notmatch $marker) {
+          throw 'The failing column rule was not reported at all.'
+        }
+        if ($relaxed.ExitCode -ne 0) {
+          throw "A failing column rule exited $($relaxed.ExitCode) although no strict flag was passed."
+        }
+        if ($relaxed.Files.Count -eq 0) {
+          throw 'A failing column rule stopped the export: no data file was written.'
+        }
+
+        $strict = Invoke-ColumnFixture 'column-rule-strict' @('-x', 'luaValidator.columnDir=Luban.ScriptValidator/tests/Fixture/columns-failing', $strictFlag)
+        if ($strict.ExitCode -eq 0) {
+          throw "A failing column rule exited 0 although $strictFlag was passed."
+        }
+
+        # 2. A rule whose declared input type does not match the field it is attached
+        #    to has to be rejected while the schema is compiled, naming the rule file.
+        $badType = Invoke-ColumnFixture 'column-rule-bad-type' @('-x', 'luaValidator.columnDir=Luban.ScriptValidator/tests/Fixture/columns-bad-type')
+        Write-Host $badType.Output
+        if ($badType.ExitCode -eq 0) {
+          throw 'A column rule declaring the wrong input type was accepted.'
+        }
+        if ($badType.Output -notmatch 'wrong-type\.lua') {
+          throw 'The rejected column rule was not named in the report.'
+        }
+
+        # 3. A tag naming a rule that nothing registered must not be a silent skip.
+        #    The message names whichever tagged field is compiled first.
+        $unknown = Invoke-ColumnFixture 'column-rule-unknown' @('-x', 'luaValidator.columnDir=Luban.ScriptValidator/tests/Fixture/assets')
+        Write-Host $unknown.Output
+        if ($unknown.ExitCode -eq 0) {
+          throw 'A #lua tag naming an unregistered rule was accepted.'
+        }
+        if ($unknown.Output -notmatch 'test\.(Asset\.icon|UnitRow\.unit)') {
+          throw 'The unregistered rule name was not reported with the field that uses it.'
+        }
+
+        $global:LASTEXITCODE = 0
+
+        Write-Host "Luban ${{ inputs.luban-version }}: column rules run once per tagged field, a failure is reported, and a bad type or unknown name fails the build."

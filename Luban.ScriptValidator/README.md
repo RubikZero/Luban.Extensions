@@ -6,6 +6,10 @@
 already loaded by Luban. It is a stable extension DLL; rules are ordinary `.lua`
 files and take effect on the next export without rebuilding the DLL.
 
+Rules come in two kinds: **export rules** that check the whole database once per
+export, and **column rules** that a schema attaches to a single field with the
+`#lua=<name>` tag and that run for every record.
+
 ## Installation
 
 Create the untracked `Directory.Build.props` from `Directory.Build.props.example`
@@ -41,8 +45,17 @@ json`, and so on) must be present, as is already the case for ordinary exports.
 Lua rules run after Luban has loaded all table data and after data targets have
 been assembled, but before `OutputSaver` writes generated files. A rule that fails,
 or one that cannot be loaded at all, is reported the same way Luban reports any
-validation failure, so the rules stay opt-in through `-x dataPostprocess=luaValidator`
-and need no `#lua` schema tag.
+validation failure.
+
+There are two kinds of rule, and they are configured separately:
+
+| Kind | Configured by | Runs | What it can use |
+| --- | --- | --- | --- |
+| Export rules | `-x luaValidator.scriptDir=<dirs>` plus `-x dataPostprocess=luaValidator`; a file defines `validate()` | once per export, after the tables are loaded | `cfg`, and every table's rows |
+| Column rules | `-x luaValidator.columnDir=<dirs>` (default: `columns` below every script directory); a file calls `register(...)` and a field is tagged `#lua=<name>` | once per record, per tagged field, in the normal validation phase | `cfg`, the field's value, and the row it belongs to |
+
+This section and the rule API below describe export rules;
+[Column rules](#column-rules) covers the other kind.
 
 It is a data postprocessor, and Luban **saves the manifest a postprocessor hands
 back**: this extension passes every exported file through unchanged, so enabling
@@ -277,14 +290,146 @@ bypass the read-only proxies (`rawget`, `rawset`, `getmetatable`, `setmetatable`
 `table.insert`, `table.remove`, `table.sort`) are removed. MoonSharp's CLR
 interop module is removed as well, so `dynamic` is `nil`.
 
+## Column rules
+
+A column rule validates **one field of every record**. It is attached where the
+field is declared, with the `#lua=<name>` type tag, so the intent stays visible in
+the schema and no separate list of fields has to be kept in sync:
+
+```xml
+<bean name="Level">
+    <var name="id"   type="int"/>
+    <var name="icon" type="string#path=normal;assets/*.txt#lua=iconName"/>
+    <var name="unit" type="UnitInfo#lua=unitRef"/>
+</bean>
+```
+
+Because it is a Luban validator rather than a postprocessor, it runs in the normal
+validation phase of every export: no `-x dataPostprocess=luaValidator` is needed,
+and a failure is reported and recorded exactly like a built-in `#ref` or `path`
+failure.
+
+### Where the scripts live
+
+| Option | Meaning |
+| --- | --- |
+| `-x luaValidator.columnDir=<dir1;dir2>` | Directories holding column scripts. |
+| *not set* | Every `<scriptDir>/columns` that exists, so one rule tree can hold both kinds. |
+
+A directory named on `luaValidator.columnDir` has to exist; a missing default
+subdirectory is simply "no column rules". Directories listed under a column
+directory are never read as export rules, so `rules/columns/*.lua` cannot be
+mistaken for a missing `validate()`.
+
+### Registering a rule
+
+Column scripts are loaded while Luban compiles the schema — before any data is
+read — so the top level of such a file may only register. `cfg`, `row`, `fail` and
+`expect` exist when the rule runs, not when it is registered:
+
+```lua
+register{
+    name     = "iconName",
+    type     = "string",              -- the input type this rule accepts
+    validate = function(value, row)
+        expect(value ~= "", "icon must not be empty")
+    end,
+}
+
+-- The positional form is equivalent.
+register("positiveWeight", "int", function(value, row)
+    expect(value > 0, "weight must be positive")
+end)
+```
+
+The declared `type` is checked against the field it is attached to while the schema
+is compiled, so a rule cannot silently run on the wrong kind of field. Accepted
+values are `any`, the Luban type names (`int`, `long`, `float`, `double`, `bool`,
+`string`, `datetime`, `list`, `map`, …), the generic `bean`, `enum` and
+`collection`, and the type exactly as the schema spells it — `UnitInfo`, `UnitType`
+— which is how a rule says *which* bean it accepts.
+
+Values arrive converted the same way they do for export rules: enums as their item
+name, `long` as a string so no digit is lost, and beans and collections as
+read-only tables. See [Field names and values](#field-names-and-values).
+
+### Looking other tables up
+
+The rule runs after the tables are loaded, so a field's validity can depend on
+another table — including on *which* table, chosen by another field:
+
+```lua
+-- Which table holds the id depends on the unit type. An enum arrives as its item
+-- name, so the mapping is keyed by name.
+local unitTables = { Hero = "TbHero", Monster = "TbMonster" }
+
+register{
+    name = "unitRef",
+    type = "UnitInfo",
+    validate = function(unit, row)
+        local tableName = unitTables[unit.unit_type]
+        expect(tableName ~= nil, "unknown unit type: " .. tostring(unit.unit_type))
+        if tableName == nil then return end
+
+        local keyed = cfg.keyed(tableName)
+        expect(keyed ~= nil, tableName .. " is not exported")
+        if keyed == nil then return end
+
+        expect(keyed[unit.unit_id] ~= nil,
+            string.format("%s has no unit_id=%d", tableName, unit.unit_id))
+    end,
+}
+```
+
+The second argument is the whole record as a read-only table, so a rule attached to
+a single field can still branch on its siblings: `row.unit_type` in a rule attached
+to `unit_id`, for example. `cfg.keyed`, `cfg.table`, `cfg.enums` and the rest of the
+rule API are the same as for export rules.
+
+### Failures
+
+A violation is logged with the record's location and the rule file, and recorded in
+Luban's validation bookkeeping:
+
+```text
+ERROR|[lua] test.TbAsset[1].icon (.../data/asset.csv): units.lua: icon must not be empty
+```
+
+Like any other validation failure it does not stop the run by itself; the strict
+flag decides the exit code. These are usage errors and abort the run instead,
+because each of them would otherwise mean "nothing was validated":
+
+- a field tagged `#lua=<name>` while no column directory is configured,
+- a name that no column script registered,
+- a registration whose declared `type` does not match the tagged field,
+- a column script that fails to load, registers the same name twice, uses an
+  unsupported key in `register{...}`, or defines `validate()` instead of
+  registering (that is an export rule, and the message says so).
+
+Note that Luban ignores a tag name it does not know, so a typo in the tag itself
+(`#luaa=name`) is silent; a wrong *name* is not, because it is resolved.
+
+### Notes
+
+- Column rules run in the validation phase, which `LoadDatas()` triggers — that is,
+  when the command has a data target (`-d ...`) or passes `-f`. A code-only run
+  validates nothing unless you add `-f`.
+- Lua functions are called one at a time: MoonSharp is not thread-safe while Luban
+  validates one table per task, so the extension queues the calls instead of giving
+  every thread its own copy of the read-only view. The tables themselves are built
+  once per run.
+
 ## Tests
 
 `tests/SmokeRules/` holds a rule that only checks the API is reachable.
 
 `tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
-no Excel and no game data — with one table of each shape, a table carrying a
-`path`-tagged field so the path validator takes part in the same run, a rule that
-exercises every lookup form, and `failing-rules/` with a rule that fails on purpose:
+no Excel and no game data — with one table of each shape, a table carrying both a
+`path`-tagged field and a `#lua`-tagged one, a rule that exercises every lookup
+form, `rules/columns/` with column rules (a string check and a cross-table one that
+picks `TbHero` or `TbMonster` from an enum value), `failing-rules/` with an export
+rule that fails on purpose, and `columns-failing/` plus `columns-bad-type/` for the
+two ways a column rule is rejected on purpose:
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
@@ -307,10 +452,13 @@ Because Luban logs a failed validation without failing the run, the fixture's
 verdict is its output and its exported files, not its exit code:
 [the shared action](../.github/actions/build-against-luban/action.yml) checks that
 the path validator found `assets/sword.txt` under the *second* of two roots and
-reports the field when only the impossible root is left, that the rules ran exactly
-once, that every exported file exists, and — using `failing-rules/` — that a failing
-rule is reported, keeps the run going, still writes the export, and becomes exit
-code `1` only under the strict flag of that Luban version.
+reports the field when only the impossible root is left, that the export rules ran
+exactly once, that each column rule ran once per tagged field and reached the table
+it looked up, that every exported file exists, and — using the deliberately broken
+rule sets — that a failing rule (export or column) is reported, keeps the run going,
+still writes the export, and becomes exit code `1` only under the strict flag of
+that Luban version, while a wrong declared type or an unregistered name fails the
+build.
 
 ## License
 

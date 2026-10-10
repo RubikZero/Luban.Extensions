@@ -18,14 +18,37 @@
     <!-- singleton -->
     <table name="TbOne" value="Row" mode="one" input="one.csv"/>
 
-    <!-- A field carrying a validator tag, so the path validator is part of the
-         pipeline instead of merely being loaded. The tag lives in the type
-         string: "assets/sword.txt" has to exist under one of the configured
-         root directories. -->
+    <!-- A field carrying validator tags, so the path validator and a column rule
+         take part in the same run. Tags live in the type string: "assets/sword.txt"
+         has to exist under one of the configured root directories, and "iconName"
+         is a rule registered by the column scripts. -->
     <bean name="Asset">
         <var name="id" type="int"/>
-        <var name="icon" type="string#path=normal;assets/*.txt"/>
+        <var name="icon" type="string#path=normal;assets/*.txt#lua=iconName"/>
     </bean>
 
     <table name="TbAsset" value="Asset" index="id" mode="map" input="asset.csv"/>
+
+    <!-- Cross-table column rule: which table holds the id depends on the enum
+         value, so the rule looks the table up by name while it runs. -->
+    <enum name="UnitType">
+        <var name="Hero" value="1"/>
+        <var name="Monster" value="2"/>
+    </enum>
+
+    <bean name="UnitInfo" sep=",">
+        <var name="unit_type" type="UnitType"/>
+        <var name="unit_id" type="int"/>
+        <var name="unit_count" type="int"/>
+    </bean>
+
+    <bean name="UnitRow">
+        <var name="id" type="int"/>
+        <var name="unit" type="UnitInfo#lua=unitRef"/>
+    </bean>
+
+    <!-- The tables the rule above checks against. -->
+    <table name="TbHero" value="Row" index="id" mode="map" input="hero.csv"/>
+    <table name="TbMonster" value="Row" index="id" mode="map" input="monster.csv"/>
+    <table name="TbUnit" value="UnitRow" index="id" mode="map" input="unit.csv"/>
 </module>

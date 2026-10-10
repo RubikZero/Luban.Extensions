@@ -1,0 +1,4 @@
+##var,id,unit
+##type,int,UnitInfo
+,1,"Hero,1001,3"
+,2,"Monster,2001,5"

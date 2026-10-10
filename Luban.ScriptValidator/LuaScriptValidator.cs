@@ -1,29 +1,34 @@
 using Luban;
-using Luban.Datas;
-using Luban.Defs;
 using Luban.PostProcess;
-using Luban.Types;
-using Luban.Utils;
-using Luban.Validator;
 using MoonSharp.Interpreter;
 
 namespace Luban.ScriptValidator;
 
-/// <summary>Runs every Lua rule once as an explicitly enabled data postprocessor.</summary>
+/// <summary>
+/// The export rules: every <c>*.lua</c> below the script directories that defines
+/// <c>validate()</c> runs once per export, as an explicitly enabled data
+/// postprocessor. Column rules registered with <c>register(...)</c> live in the
+/// column directories and are handled by <see cref="LuaColumnValidator"/>.
+/// </summary>
 [PostProcess("luaValidator", TargetFileType.DataExport, Priority = 100)]
 public sealed class LuaScriptPostProcessor : PostProcessBase
 {
-    private const string OptionFamily = "luaValidator";
-    private const string ScriptDirOption = "scriptDir";
     private const string ExecutionKey = "luaValidator.postprocessExecuted";
 
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     private readonly string[] _scriptDirectories;
+    private readonly string[] _columnDirectories;
 
     public LuaScriptPostProcessor()
     {
-        EnvManager.Current.TryGetOption(OptionFamily, ScriptDirOption, false, out string? rawDirectories);
-        _scriptDirectories = ParseDirectories(rawDirectories);
+        EnvManager.Current.TryGetOption(
+            LuaRuleFiles.OptionFamily,
+            LuaRuleFiles.ScriptDirOption,
+            false,
+            out string? rawDirectories);
+        _scriptDirectories = LuaRuleFiles.ParseDirectories(rawDirectories);
+        _columnDirectories = LuaRuleFiles.ResolveColumnDirectories(_scriptDirectories);
     }
 
     // Luban collects the exported files into one manifest, hands the
@@ -61,7 +66,8 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
     {
         if (_scriptDirectories.Length == 0)
         {
-            throw new InvalidOperationException($"Lua validation requires -x {OptionFamily}.{ScriptDirOption}=<directory>.");
+            throw new InvalidOperationException(
+                $"Lua validation requires -x {LuaRuleFiles.OptionFamily}.{LuaRuleFiles.ScriptDirOption}=<directory>.");
         }
 
         // The pipeline calls the manifest overload and, through it, the per-file
@@ -78,7 +84,8 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
         List<string> scriptFiles = GetScriptFiles();
         if (scriptFiles.Count == 0)
         {
-            throw new InvalidOperationException($"No Lua rule files (*.lua) were found in: {string.Join(", ", _scriptDirectories)}");
+            throw new InvalidOperationException(
+                $"No Lua rule files (*.lua) were found in: {string.Join(", ", _scriptDirectories)}");
         }
 
         LuaConfigData configData = LuaConfigData.Create(GenerationContext.Current);
@@ -102,47 +109,16 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
             // (4.x) or --strict (5.x) decides the exit code at the end of the
             // pipeline. Recording the failure here is what makes Lua rules behave
             // exactly like the built-in validators.
-            GenerationContext.Current.LogValidatorFail(FailureRecord);
-        }
-    }
-
-    // GenerationContext.LogValidatorFail takes an IDataValidator, and all it does
-    // with it is remember that a validation failed, so a no-op validator is the
-    // whole adapter.
-    private static readonly IDataValidator FailureRecord = new LuaValidationFailure();
-
-    private sealed class LuaValidationFailure : DataValidatorBase
-    {
-        public override void Compile(DefField field, TType type)
-        {
-        }
-
-        public override void Validate(DataValidatorContext ctx, TType type, DType data)
-        {
+            GenerationContext.Current.LogValidatorFail(LuaValidationFailure.Instance);
         }
     }
 
     private void ExecuteScript(string scriptFile, LuaConfigData configData, List<string> failures)
     {
         Script script = new(CoreModules.Preset_SoftSandbox);
-        RemoveTableMutationApis(script);
+        LuaRuleFiles.HardenSandbox(script);
         script.Globals["cfg"] = configData.CreateLuaTable(script);
-        script.Globals["fail"] = DynValue.NewCallback((_, args) =>
-        {
-            string message = args.Count > 0 ? args[0].CastToString() ?? args[0].ToPrintString() : "Lua validation failed.";
-            failures.Add($"{scriptFile}: {message}");
-            return DynValue.Nil;
-        });
-        script.Globals["expect"] = DynValue.NewCallback((_, args) =>
-        {
-            bool passed = args.Count > 0 && args[0].CastToBool();
-            if (!passed)
-            {
-                string message = args.Count > 1 ? args[1].CastToString() ?? args[1].ToPrintString() : "Expectation failed.";
-                failures.Add($"{scriptFile}: {message}");
-            }
-            return DynValue.Nil;
-        });
+        LuaRuleFiles.RegisterFailureGlobals(script, message => failures.Add($"{scriptFile}: {message}"));
 
         try
         {
@@ -150,7 +126,8 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
             DynValue validate = script.Globals.Get("validate");
             if (validate.Type != DataType.Function && validate.Type != DataType.ClrFunction)
             {
-                failures.Add($"{scriptFile}: a global function named validate() is required.");
+                failures.Add($"{scriptFile}: a global function named validate() is required. " +
+                    $"Column rules use register(...) and belong in -x {LuaRuleFiles.OptionFamily}.{LuaRuleFiles.ColumnDirOption}.");
                 return;
             }
 
@@ -166,57 +143,13 @@ public sealed class LuaScriptPostProcessor : PostProcessBase
         }
     }
 
-    private static void RemoveTableMutationApis(Script script)
-    {
-        // A read-only proxy intercepts ordinary assignment. Remove the standard
-        // helpers which could otherwise bypass a proxy's __newindex metamethod.
-        script.Globals.Set("rawget", DynValue.Nil);
-        script.Globals.Set("rawset", DynValue.Nil);
-        script.Globals.Set("getmetatable", DynValue.Nil);
-        script.Globals.Set("setmetatable", DynValue.Nil);
-
-        DynValue tableLibraryValue = script.Globals.Get("table");
-        if (tableLibraryValue.Type == DataType.Table)
-        {
-            tableLibraryValue.Table.Set("insert", DynValue.Nil);
-            tableLibraryValue.Table.Set("remove", DynValue.Nil);
-            tableLibraryValue.Table.Set("sort", DynValue.Nil);
-        }
-
-        // MoonSharp's soft sandbox also enables the CLR interop module
-        // (dynamic.eval / dynamic.prepare), which can evaluate expressions at run
-        // time. Rules only need cfg, fail and expect.
-        script.Globals.Set("dynamic", DynValue.Nil);
-    }
-
+    /// <summary>
+    /// Every rule file below the script directories, minus the column directories:
+    /// those are loaded by the column validator at schema compile time, and their
+    /// scripts have no <c>validate()</c>.
+    /// </summary>
     private List<string> GetScriptFiles()
     {
-        List<string> files = new();
-        foreach (string directory in _scriptDirectories)
-        {
-            if (!Directory.Exists(directory))
-            {
-                throw new DirectoryNotFoundException($"Lua validation rule directory does not exist: {directory}");
-            }
-
-            files.AddRange(Directory.EnumerateFiles(directory, "*.lua", SearchOption.AllDirectories));
-        }
-
-        files.Sort(StringComparer.OrdinalIgnoreCase);
-        return files;
-    }
-
-    private static string[] ParseDirectories(string? rawDirectories)
-    {
-        if (string.IsNullOrWhiteSpace(rawDirectories))
-        {
-            return Array.Empty<string>();
-        }
-
-        return rawDirectories
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(Path.GetFullPath)
-            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
-            .ToArray();
+        return LuaRuleFiles.EnumerateRules(_scriptDirectories, _columnDirectories);
     }
 }

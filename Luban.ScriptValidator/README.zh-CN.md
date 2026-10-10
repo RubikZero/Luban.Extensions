@@ -4,6 +4,8 @@
 
 `Luban.ScriptValidator` 针对 Luban 已加载的全部配置表运行 Lua 校验规则。它是一个稳定的扩展 DLL；规则就是普通的 `.lua` 文件，改完下次导出即生效，无需重新编译 DLL。
 
+规则分两种：**导出级规则**每次导出对整库检查一次；**列级规则**由 schema 用 `#lua=<名字>` 标签挂在单个字段上，逐条记录执行。
+
 ## 安装
 
 先用 `Directory.Build.props.example` 生成不受 git 跟踪的 `Directory.Build.props`，并把 `LubanDir` 指向你的 Luban 安装目录，详见[仓库说明](../README.zh-CN.md#初始化)。然后构建并部署全部扩展：
@@ -27,7 +29,16 @@ dotnet build .\Luban.Extensions.sln -c Release -m:1 -p:DeployLubanExtensions=tru
 
 多个目录用 `;` 分隔。相对目录以 Luban 命令的当前工作目录为基准。所有 `*.lua` 文件会被递归加载，顺序按路径确定。必须存在一个数据目标（`-d bin`、`-d json` 等），这与普通导出本身的要求一致。
 
-Lua 规则在 Luban 加载完全部表数据、且数据目标装配完成之后运行，但在 `OutputSaver` 写出文件之前。规则失败、或规则根本无法加载，都会按「Luban 校验失败」的统一方式上报；规则仍然是显式开启的（`-x dataPostprocess=luaValidator`），不需要 `#lua` schema 标签。
+Lua 规则在 Luban 加载完全部表数据、且数据目标装配完成之后运行，但在 `OutputSaver` 写出文件之前。规则失败、或规则根本无法加载，都会按「Luban 校验失败」的统一方式上报。
+
+规则分两种，配置方式彼此独立：
+
+| 种类 | 怎么配置 | 什么时候跑 | 能用什么 |
+| --- | --- | --- | --- |
+| 导出级规则 | `-x luaValidator.scriptDir=<目录>` + `-x dataPostprocess=luaValidator`；文件里定义 `validate()` | 每次导出跑一次，在表数据装配之后 | `cfg`，以及所有表的行 |
+| 列级规则 | `-x luaValidator.columnDir=<目录>`（缺省取每个脚本目录下的 `columns`）；文件里 `register(...)`，字段上挂 `#lua=<名字>` | 每条记录的每个被打标签的字段各跑一次，在正常的校验阶段 | `cfg`、该字段的值，以及它所在的行 |
+
+本节与下面的「规则 API」讲的是导出级规则；另一种见[列级规则](#列级规则)。
 
 它是数据后处理器（data postprocess），而 Luban **保存的就是后处理器交回去的那份清单**：本扩展把每个导出文件原样透传，所以开启校验不会改变任何产物内容。
 
@@ -197,11 +208,107 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 
 解释器运行在 MoonSharp 的软沙箱中。规则只能拿到 `cfg`、`fail`、`expect` 这几个 API。文件、进程与包加载类 API（`io`、`debug`、`require`、`dofile`、`loadfile`、`load`、`loadstring`）都不存在；`os` 只暴露 `clock` / `date` / `difftime` / `time`；可能绕过只读代理的可变助手（`rawget`、`rawset`、`getmetatable`、`setmetatable`、`table.insert`、`table.remove`、`table.sort`）已被移除。MoonSharp 的 CLR 互操作模块同样被移除，因此 `dynamic` 为 `nil`。
 
+## 列级规则
+
+列级规则校验的是**每条记录上的某个字段**。它在 schema 里就地声明——用 `#lua=<名字>` 标签挂在字段类型上——所以意图留在字段旁边，不需要另外维护一份字段清单：
+
+```xml
+<bean name="Level">
+    <var name="id"   type="int"/>
+    <var name="icon" type="string#path=normal;assets/*.txt#lua=iconName"/>
+    <var name="unit" type="UnitInfo#lua=unitRef"/>
+</bean>
+```
+
+它是 Luban 的**校验器**而不是后处理器，因此每次导出都会在正常的校验阶段执行：不需要 `-x dataPostprocess=luaValidator`，失败也完全按内置 `#ref`、`path` 的方式上报与登记。
+
+### 脚本放在哪里
+
+| 选项 | 含义 |
+| --- | --- |
+| `-x luaValidator.columnDir=<目录1;目录2>` | 存放列级脚本的目录。 |
+| *不设置* | 每个存在的 `<scriptDir>/columns`，于是一棵规则树就能同时容纳两种规则。 |
+
+显式写进 `luaValidator.columnDir` 的目录必须存在；缺省子目录不存在则只是「没有列级规则」。列目录下的文件**永远不会**被当成导出级规则读取，因此 `rules/columns/*.lua` 不会被误判为「缺少 `validate()`」。
+
+### 注册规则
+
+列级脚本在 Luban 编译 schema 时加载——此时数据还没读——所以这类文件的顶层只能做注册。`cfg`、`row`、`fail`、`expect` 都是在**规则执行时**才存在：
+
+```lua
+register{
+    name     = "iconName",
+    type     = "string",              -- 本规则接受的输入类型
+    validate = function(value, row)
+        expect(value ~= "", "icon 不能为空")
+    end,
+}
+
+-- 位置参数写法等价
+register("positiveWeight", "int", function(value, row)
+    expect(value > 0, "weight 必须为正")
+end)
+```
+
+声明的 `type` 会在编译 schema 时与被挂字段的实际类型比对，所以规则不可能悄悄跑在不对的字段上。可用的取值：`any`、Luban 的类型名（`int`、`long`、`float`、`double`、`bool`、`string`、`datetime`、`list`、`map` 等）、以及笼统的 `bean`、`enum`、`collection`，还有**按 schema 原样书写**的类型名——`UnitInfo`、`UnitType`，这是规则用来指明「我接受哪个 bean」的写法。
+
+值的转换与导出级规则一致：枚举到达的是**项名**、`long` 是字符串（不丢精度）、bean 与集合是只读表。详见[字段名与取值](#字段名与取值)。
+
+### 跨表查询
+
+规则在表数据装配之后执行，所以一个字段是否合法可以取决于另一张表——甚至可以取决于**哪张表**，由另一个字段决定：
+
+```lua
+-- 该 id 属于哪张表取决于 unit_type。枚举到达 Lua 是项名，所以映射按名字做键。
+local unitTables = { Hero = "TbHero", Monster = "TbMonster" }
+
+register{
+    name = "unitRef",
+    type = "UnitInfo",
+    validate = function(unit, row)
+        local tableName = unitTables[unit.unit_type]
+        expect(tableName ~= nil, "未知的 unit type: " .. tostring(unit.unit_type))
+        if tableName == nil then return end
+
+        local keyed = cfg.keyed(tableName)
+        expect(keyed ~= nil, tableName .. " 未导出")
+        if keyed == nil then return end
+
+        expect(keyed[unit.unit_id] ~= nil,
+            string.format("%s 中不存在 unit_id=%d", tableName, unit.unit_id))
+    end,
+}
+```
+
+第二个参数是**整行**的只读表，所以挂在单个字段上的规则也能按兄弟字段分支：例如把规则挂在 `unit_id` 上，然后读 `row.unit_type`。`cfg.keyed`、`cfg.table`、`cfg.enums` 等规则 API 与导出级规则完全相同。
+
+### 失败怎么表现
+
+违规会带着记录位置与规则文件一起记日志，并登记进 Luban 的校验失败簿记：
+
+```text
+ERROR|[lua] test.TbAsset[1].icon (.../data/asset.csv): units.lua: icon 不能为空
+```
+
+与其他校验失败一样，它本身不会中断运行；退出码由严格模式开关决定。而下面这些属于用法错误，会直接以退出码 `1` 中止——因为每一种的后果都是「其实什么都没校验」：
+
+- 字段挂了 `#lua=<名字>`，但没有配置任何列目录；
+- 这个名字没有任何列级脚本注册；
+- 注册时声明的 `type` 与被挂字段不符；
+- 列级脚本加载失败、同名重复注册、`register{...}` 里用了不支持的键，或者该文件定义的是 `validate()`（那是导出级规则，报错里会说明）。
+
+另外注意：Luban 对**不认识的标签名**是静默忽略的，所以标签本身拼错（`#luaa=name`）不会报错；而**名字**写错会报错，因为它需要被解析。
+
+### 备注
+
+- 列级规则跑在校验阶段，而校验阶段由 `LoadDatas()` 触发——也就是说命令里要有数据目标（`-d ...`）或显式传 `-f`。只生成代码（只给 `-c`）的运行不会校验，除非加上 `-f`。
+- Lua 函数是**串行**调用的：MoonSharp 不是线程安全的，而 Luban 会「每张表一个任务」并行校验，所以本扩展把调用排队，而不是让每个线程各持一份只读视图。只读视图本身每次运行只构建一次。
+
 ## 测试
 
 `tests/SmokeRules/` 里是一条只检查 API 可达的规则。
 
-`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张带 `path` 标签字段的表（让路径校验器参与同一次运行），配一条覆盖全部取值写法的规则；`failing-rules/` 里则是一条故意失败的规则：
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张同时带 `path` 与 `#lua` 标签字段的表，配一条覆盖全部取值写法的规则；`rules/columns/` 里是列级规则（一条字符串检查，一条按枚举值去 `TbHero`/`TbMonster` 里查的条件规则）；`failing-rules/` 里是一条故意失败的导出级规则；`columns-failing/` 与 `columns-bad-type/` 则分别覆盖列级规则被拒绝的两种方式：
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `
@@ -216,7 +323,7 @@ dotnet <LubanDir>\Luban.dll -t all -d bin `
 
 "写到真实目录"是这项检查的一部分而不是点缀：Luban 保存的就是后处理器交回的清单，所以一个只做校验的后处理器会让输出目录空着、却依然以 `0` 退出。
 
-由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出与产物**而不是退出码：[共用 action](../.github/actions/build-against-luban/action.yml) 会核对「路径校验器在两个根目录中的**第二个**下找到了 `assets/sword.txt`」、只剩不可能的那个根目录时会报出该字段、规则恰好执行一次、每个导出文件都存在；并用 `failing-rules/` 核对「失败的规则会被上报、运行继续、产物照常写出、且只有该 Luban 版本的严格模式开关才会把它变成退出码 `1`」。
+由于 Luban 会把校验失败记成日志而不让进程失败，fixture 的判据是它的**输出与产物**而不是退出码：[共用 action](../.github/actions/build-against-luban/action.yml) 会核对「路径校验器在两个根目录中的**第二个**下找到了 `assets/sword.txt`」、只剩不可能的那个根目录时会报出该字段、导出级规则恰好执行一次、每条列级规则在每个被打标签的字段上恰好执行一次并真的查到了目标表、每个导出文件都存在；并用那几份**故意写坏**的规则集核对「失败的规则（导出级或列级）会被上报、运行继续、产物照常写出、且只有该 Luban 版本的严格模式开关才会把它变成退出码 `1`」，而类型声明不符或名字未注册会让构建直接失败。
 
 ## 许可
 

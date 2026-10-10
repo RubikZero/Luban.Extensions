@@ -14,7 +14,7 @@ Every project directory has its own readme, in English and Chinese.
 | Directory | What it adds | Readme |
 | --- | --- | --- |
 | [`MultiRootPathValidator/`](MultiRootPathValidator) | Replaces the built-in `path` validator so an asset path may live under any of several project roots. | [English](MultiRootPathValidator/README.md) · [简体中文](MultiRootPathValidator/README.zh-CN.md) |
-| [`Luban.ScriptValidator/`](Luban.ScriptValidator) | Runs Lua validation rules over the loaded tables, with helpers for enums, `#ref` lookups and primary-key lookups. | [English](Luban.ScriptValidator/README.md) · [简体中文](Luban.ScriptValidator/README.zh-CN.md) |
+| [`Luban.ScriptValidator/`](Luban.ScriptValidator) | Runs Lua validation rules over the loaded tables — whole-export rules and per-field column rules attached with a `#lua` tag — with helpers for enums, `#ref` lookups and primary-key lookups. | [English](Luban.ScriptValidator/README.md) · [简体中文](Luban.ScriptValidator/README.zh-CN.md) |
 | [`tools/Luban.Extension.Deployer/`](tools/Luban.Extension.Deployer) | Copies a built extension into a Luban installation and registers it in `Luban.deps.json`. | [English](tools/Luban.Extension.Deployer/README.md) · [简体中文](tools/Luban.Extension.Deployer/README.zh-CN.md) |
 
 ## How Luban loads an extension

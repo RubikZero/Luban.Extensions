@@ -11,7 +11,7 @@
 | 目录 | 提供的能力 | 说明文档 |
 | --- | --- | --- |
 | [`MultiRootPathValidator/`](MultiRootPathValidator) | 替换内建的 `path` 校验器，使资源路径可以在多个工程根目录中的任意一个下命中。 | [English](MultiRootPathValidator/README.md) · [简体中文](MultiRootPathValidator/README.zh-CN.md) |
-| [`Luban.ScriptValidator/`](Luban.ScriptValidator) | 对已加载的表运行 Lua 校验规则，并提供枚举、`#ref` 引用与主键取值的辅助函数。 | [English](Luban.ScriptValidator/README.md) · [简体中文](Luban.ScriptValidator/README.zh-CN.md) |
+| [`Luban.ScriptValidator/`](Luban.ScriptValidator) | 对已加载的表运行 Lua 校验规则——既有整库的导出级规则，也有用 `#lua` 标签挂在字段上的列级规则——并提供枚举、`#ref` 引用与主键取值的辅助函数。 | [English](Luban.ScriptValidator/README.md) · [简体中文](Luban.ScriptValidator/README.zh-CN.md) |
 | [`tools/Luban.Extension.Deployer/`](tools/Luban.Extension.Deployer) | 把构建好的扩展拷贝进 Luban 安装目录，并登记到 `Luban.deps.json`。 | [English](tools/Luban.Extension.Deployer/README.md) · [简体中文](tools/Luban.Extension.Deployer/README.zh-CN.md) |
 
 ## Luban 如何加载扩展

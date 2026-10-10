@@ -146,6 +146,15 @@ internal sealed class LuaConfigData
     }
 
     /// <summary>
+    /// The read-only proxy of a record, so a column rule can look at the whole row
+    /// it belongs to. Returns null for a record that was not built into this view.
+    /// </summary>
+    internal Table? GetRowTable(Record record)
+    {
+        return _rowTables.TryGetValue(record, out Table? row) ? row : null;
+    }
+
+    /// <summary>
     /// Returns the table's rows keyed by the selected index, mirroring the
     /// <c>DataMap</c> / <c>GetByXxx</c> / <c>Get(k1, k2)</c> APIs of Luban's
     /// generated code. A union index produces one nesting level per component.
@@ -1023,7 +1032,13 @@ internal sealed class LuaConfigData
             : implType.FullNameWithTopModule;
     }
 
-    private static DynValue ToLuaValue(Script script, DType? data)
+    /// <summary>
+    /// Converts one Luban value into Lua. Column rules receive their field's value
+    /// this way, and it is the same conversion the row proxies use: enums arrive as
+    /// their item name, <c>long</c> as a string to keep every digit, and beans and
+    /// collections as read-only tables.
+    /// </summary>
+    internal static DynValue ToLuaValue(Script script, DType? data)
     {
         if (data is null)
         {
