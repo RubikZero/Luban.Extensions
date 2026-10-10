@@ -324,20 +324,20 @@ mistaken for a missing `validate()`.
 ### Registering a rule
 
 Column scripts are loaded while Luban compiles the schema — before any data is
-read — so the top level of such a file may only register. `cfg`, `row`, `fail` and
-`expect` exist when the rule runs, not when it is registered:
+read — so the top level of such a file may only register. `cfg`, `row`, `owner`,
+`fail` and `expect` exist when the rule runs, not when it is registered:
 
 ```lua
 register{
     name     = "iconName",
     type     = "string",              -- the input type this rule accepts
-    validate = function(value, row)
+    validate = function(value, row, owner)
         expect(value ~= "", "icon must not be empty")
     end,
 }
 
 -- The positional form is equivalent.
-register("positiveWeight", "int", function(value, row)
+register("positiveWeight", "int", function(value, row, owner)
     expect(value > 0, "weight must be positive")
 end)
 ```
@@ -353,38 +353,61 @@ Values arrive converted the same way they do for export rules: enums as their it
 name, `long` as a string so no digit is lost, and beans and collections as
 read-only tables. See [Field names and values](#field-names-and-values).
 
+The three arguments are:
+
+| Argument | What it is |
+| --- | --- |
+| `value` | The tagged field's value. When the tag is on a field whose type is a bean, this is the whole bean. |
+| `row` | The record the field belongs to, as a read-only table. |
+| `owner` | The bean that contains the tagged field. For a field of the record itself it is the record, so `owner == row` holds. |
+
+`owner` is what makes a rule **declared inside a bean** able to read its siblings:
+that rule is called for every place the bean is used, and the field's own name and
+position are not passed to it, so `owner.unit_type` is the only way to reach the
+neighbouring field without hard-coding where the bean sits.
+
+### Where to attach a rule
+
+| The rule needs | Attach it to | Example |
+| --- | --- | --- |
+| Only the field's own value (not empty, in range, matches a pattern) | a field **inside the bean**, so it applies wherever the bean is used | `type="int#lua=positiveWeight"` |
+| The field's value plus its siblings | also a field inside the bean, read the siblings from `owner` | `type="int#lua=unitRef"` with `owner.unit_type` |
+| The whole bean, in one chosen place only | the field that **uses the bean**, so `value` is the bean | `type="UnitInfo#lua=unitRef"` |
+
+Declaring a rule inside a bean means every use of that bean is checked and no use
+site can opt out; attaching it at a use site means the opposite.
+
 ### Looking other tables up
 
 The rule runs after the tables are loaded, so a field's validity can depend on
-another table — including on *which* table, chosen by another field:
+another table — including on *which* table, chosen by a sibling field:
 
 ```lua
--- Which table holds the id depends on the unit type. An enum arrives as its item
--- name, so the mapping is keyed by name.
+-- Attached to UnitInfo.unit_id, so it applies wherever UnitInfo is used. The enum
+-- arrives in Lua as its item name, so the mapping is keyed by name; `owner` is the
+-- UnitInfo this field belongs to, whichever field name it is used under.
 local unitTables = { Hero = "TbHero", Monster = "TbMonster" }
 
 register{
     name = "unitRef",
-    type = "UnitInfo",
-    validate = function(unit, row)
-        local tableName = unitTables[unit.unit_type]
-        expect(tableName ~= nil, "unknown unit type: " .. tostring(unit.unit_type))
+    type = "int",
+    validate = function(value, row, owner)
+        local tableName = unitTables[owner.unit_type]
+        expect(tableName ~= nil, "unknown unit type: " .. tostring(owner.unit_type))
         if tableName == nil then return end
 
         local keyed = cfg.keyed(tableName)
         expect(keyed ~= nil, tableName .. " is not exported")
         if keyed == nil then return end
 
-        expect(keyed[unit.unit_id] ~= nil,
-            string.format("%s has no unit_id=%d", tableName, unit.unit_id))
+        expect(keyed[value] ~= nil,
+            string.format("%s has no unit_id=%d", tableName, value))
     end,
 }
 ```
 
-The second argument is the whole record as a read-only table, so a rule attached to
-a single field can still branch on its siblings: `row.unit_type` in a rule attached
-to `unit_id`, for example. `cfg.keyed`, `cfg.table`, `cfg.enums` and the rest of the
-rule API are the same as for export rules.
+`cfg.keyed`, `cfg.table`, `cfg.enums` and the rest of the rule API are the same as
+for export rules.
 
 ### Failures
 
@@ -426,10 +449,11 @@ Note that Luban ignores a tag name it does not know, so a typo in the tag itself
 `tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
 no Excel and no game data — with one table of each shape, a table carrying both a
 `path`-tagged field and a `#lua`-tagged one, a rule that exercises every lookup
-form, `rules/columns/` with column rules (a string check and a cross-table one that
-picks `TbHero` or `TbMonster` from an enum value), `failing-rules/` with an export
-rule that fails on purpose, and `columns-failing/` plus `columns-bad-type/` for the
-two ways a column rule is rejected on purpose:
+form, `rules/columns/` with column rules (a string check, and a cross-table rule
+declared *inside* the bean that picks `TbHero` or `TbMonster` from an enum value and
+is used from two tables under different field names), `failing-rules/` with an
+export rule that fails on purpose, and `columns-failing/` plus `columns-bad-type/`
+for the two ways a column rule is rejected on purpose:
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `

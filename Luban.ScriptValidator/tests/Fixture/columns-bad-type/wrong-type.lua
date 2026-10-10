@@ -3,14 +3,14 @@
 
 register{
     name = "unitRef",
-    type = "UnitInfo",
-    validate = function(unit, row)
+    type = "int",
+    validate = function(value, row, owner)
     end,
 }
 
 register{
     name = "iconName",
     type = "int",
-    validate = function(value, row)
+    validate = function(value, row, owner)
     end,
 }

@@ -29,8 +29,9 @@
 
     <table name="TbAsset" value="Asset" index="id" mode="map" input="asset.csv"/>
 
-    <!-- Cross-table column rule: which table holds the id depends on the enum
-         value, so the rule looks the table up by name while it runs. -->
+    <!-- A column rule declared inside a bean, so it applies wherever the bean is
+         used. The rule has to read a sibling field to know which table holds the
+         id, which is what the owner argument is for. -->
     <enum name="UnitType">
         <var name="Hero" value="1"/>
         <var name="Monster" value="2"/>
@@ -38,17 +39,25 @@
 
     <bean name="UnitInfo" sep=",">
         <var name="unit_type" type="UnitType"/>
-        <var name="unit_id" type="int"/>
+        <var name="unit_id" type="int#lua=unitRef"/>
         <var name="unit_count" type="int"/>
     </bean>
 
+    <!-- Two tables using the bean, with different field names: the rule is declared
+         once and has to work in both places. -->
     <bean name="UnitRow">
         <var name="id" type="int"/>
-        <var name="unit" type="UnitInfo#lua=unitRef"/>
+        <var name="unit" type="UnitInfo"/>
+    </bean>
+
+    <bean name="SquadRow">
+        <var name="id" type="int"/>
+        <var name="squad" type="UnitInfo"/>
     </bean>
 
     <!-- The tables the rule above checks against. -->
     <table name="TbHero" value="Row" index="id" mode="map" input="hero.csv"/>
     <table name="TbMonster" value="Row" index="id" mode="map" input="monster.csv"/>
     <table name="TbUnit" value="UnitRow" index="id" mode="map" input="unit.csv"/>
+    <table name="TbSquad" value="SquadRow" index="id" mode="map" input="squad.csv"/>
 </module>

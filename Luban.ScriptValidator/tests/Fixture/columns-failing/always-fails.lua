@@ -3,20 +3,21 @@
 -- reported like any other validation failure: logged, recorded, the export still
 -- written, and exit code 1 only under the strict flag.
 --
--- unitRef is registered as well so that this run reaches the failure instead of
--- stopping at an unresolved rule name.
+-- unitRef is registered as well, and with the input type of the field it is
+-- attached to, so that this run reaches the failure instead of stopping at a
+-- registration that does not match the schema.
 
 register{
     name = "unitRef",
-    type = "UnitInfo",
-    validate = function(unit, row)
+    type = "int",
+    validate = function(value, row, owner)
     end,
 }
 
 register{
     name = "iconName",
     type = "string",
-    validate = function(value, row)
+    validate = function(value, row, owner)
         fail("[lua-column-fail-fixture] deliberate failure")
     end,
 }

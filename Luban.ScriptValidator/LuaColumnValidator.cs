@@ -100,7 +100,8 @@ public sealed class LuaColumnValidator : DataValidatorBase
 
         Record? record = DataValidatorContext.CurrentVisitor?.CurrentValidateRecord;
         List<string> failures = new();
-        LuaColumnRuntime.Current(_scriptDirectories, _columnDirectories).Invoke(rule, data, record, failures);
+        LuaColumnRuntime.Current(_scriptDirectories, _columnDirectories)
+            .Invoke(rule, data, record, ResolveOwner(record), failures);
         if (failures.Count == 0)
         {
             return;
@@ -113,6 +114,38 @@ public sealed class LuaColumnValidator : DataValidatorBase
         }
 
         GenerationContext.Current.LogValidatorFail(LuaValidationFailure.Instance);
+    }
+
+    /// <summary>
+    /// The bean that contains the field being validated, which lets a rule declared
+    /// inside a bean read its sibling fields without knowing where that bean is
+    /// used. For a field of the record itself this is the record, so the rule sees
+    /// the same table as its <c>row</c> argument.
+    /// </summary>
+    private static DType? ResolveOwner(Record? record)
+    {
+        if (record is null)
+        {
+            return null;
+        }
+
+        DataValidatorVisitor? visitor = DataValidatorContext.CurrentVisitor;
+        if (visitor is null)
+        {
+            return record.Data;
+        }
+
+        // The path is a stack, and its last component is the field being validated:
+        // drop that one and walk the rest from the record. The first component is
+        // the table name, which is not part of the data.
+        List<object> components = visitor.Path.Reverse().ToList();
+        if (components.Count == 0)
+        {
+            return record.Data;
+        }
+
+        components.RemoveAt(components.Count - 1);
+        return LuaConfigData.Descend(record.Data, components.Skip(1)) ?? record.Data;
     }
 
     private static string DescribeLocation(Record? record)
@@ -182,7 +215,7 @@ internal sealed class LuaColumnRuntime
         }
     }
 
-    internal void Invoke(LuaColumnRules.Rule rule, DType data, Record? record, List<string> failures)
+    internal void Invoke(LuaColumnRules.Rule rule, DType data, Record? record, DType? owner, List<string> failures)
     {
         if (!_functions.TryGetValue(rule.Name, out DynValue? function) || function is null)
         {
@@ -195,12 +228,21 @@ internal sealed class LuaColumnRuntime
             _call = new CallState(rule, failures);
             try
             {
+                Table? rowTable = record is null ? null : _configData.GetRowTable(record);
                 DynValue value = LuaConfigData.ToLuaValue(_script, data);
-                DynValue row = record is not null && _configData.GetRowTable(record) is { } rowTable
-                    ? DynValue.NewTable(rowTable)
-                    : DynValue.Nil;
+                DynValue row = rowTable is null ? DynValue.Nil : DynValue.NewTable(rowTable);
 
-                _script.Call(function, value, row);
+                // A field of the record itself has the record as its owner, so hand
+                // the rule the very table it already has as `row`: that keeps
+                // owner == row, which a rule can rely on.
+                DynValue ownerValue = owner switch
+                {
+                    null => DynValue.Nil,
+                    _ when rowTable is not null && ReferenceEquals(owner, record!.Data) => DynValue.NewTable(rowTable),
+                    _ => LuaConfigData.ToLuaValue(_script, owner),
+                };
+
+                _script.Call(function, value, row, ownerValue);
             }
             catch (InterpreterException exception)
             {

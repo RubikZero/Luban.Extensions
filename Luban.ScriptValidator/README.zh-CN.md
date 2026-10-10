@@ -233,19 +233,19 @@ bean 字段是只读 Lua 表；list、array、set 是只读 Lua 数组；map 是
 
 ### 注册规则
 
-列级脚本在 Luban 编译 schema 时加载——此时数据还没读——所以这类文件的顶层只能做注册。`cfg`、`row`、`fail`、`expect` 都是在**规则执行时**才存在：
+列级脚本在 Luban 编译 schema 时加载——此时数据还没读——所以这类文件的顶层只能做注册。`cfg`、`row`、`owner`、`fail`、`expect` 都是在**规则执行时**才存在：
 
 ```lua
 register{
     name     = "iconName",
     type     = "string",              -- 本规则接受的输入类型
-    validate = function(value, row)
+    validate = function(value, row, owner)
         expect(value ~= "", "icon 不能为空")
     end,
 }
 
 -- 位置参数写法等价
-register("positiveWeight", "int", function(value, row)
+register("positiveWeight", "int", function(value, row, owner)
     expect(value > 0, "weight 必须为正")
 end)
 ```
@@ -254,33 +254,54 @@ end)
 
 值的转换与导出级规则一致：枚举到达的是**项名**、`long` 是字符串（不丢精度）、bean 与集合是只读表。详见[字段名与取值](#字段名与取值)。
 
+三个参数分别是：
+
+| 参数 | 是什么 |
+| --- | --- |
+| `value` | 被打标签字段的值。标签挂在一个 bean 类型的字段上时，这里就是整个 bean。 |
+| `row` | 该字段所在的那条记录，只读表。 |
+| `owner` | 包含该字段的那个 bean。字段属于记录本身时，它就是记录本身，即 `owner == row` 成立。 |
+
+`owner` 是让**写在 bean 内部**的规则能读到兄弟字段的关键：那条规则会在每一处使用该 bean 的地方被调用，而它拿不到自己的字段名与位置，所以 `owner.unit_type` 是不硬编码「bean 被用在哪」就能摸到邻居字段的唯一途径。
+
+### 规则该挂在哪里
+
+| 规则需要什么 | 挂在哪 | 例子 |
+| --- | --- | --- |
+| 只用字段自身的值（非空、范围、格式） | **bean 内部的字段**，于是处处生效 | `type="int#lua=positiveWeight"` |
+| 自身值 + 兄弟字段 | 同样放 bean 内部，兄弟字段从 `owner` 读 | `type="int#lua=unitRef"` 配 `owner.unit_type` |
+| 整个 bean，且只想在某处校验 | **使用该 bean 的字段**，此时 `value` 就是 bean | `type="UnitInfo#lua=unitRef"` |
+
+写在 bean 内部意味着该 bean 的每一处使用都会被校验、使用处无法退出；挂在使用处则相反。
+
 ### 跨表查询
 
-规则在表数据装配之后执行，所以一个字段是否合法可以取决于另一张表——甚至可以取决于**哪张表**，由另一个字段决定：
+规则在表数据装配之后执行，所以一个字段是否合法可以取决于另一张表——甚至可以取决于**哪张表**，由兄弟字段决定：
 
 ```lua
--- 该 id 属于哪张表取决于 unit_type。枚举到达 Lua 是项名，所以映射按名字做键。
+-- 挂在 UnitInfo.unit_id 上，因此 UnitInfo 用在哪里都生效。枚举到达 Lua 是项名，
+-- 所以映射按名字做键；owner 就是该字段所属的那个 UnitInfo，与它被用在哪个字段名下无关。
 local unitTables = { Hero = "TbHero", Monster = "TbMonster" }
 
 register{
     name = "unitRef",
-    type = "UnitInfo",
-    validate = function(unit, row)
-        local tableName = unitTables[unit.unit_type]
-        expect(tableName ~= nil, "未知的 unit type: " .. tostring(unit.unit_type))
+    type = "int",
+    validate = function(value, row, owner)
+        local tableName = unitTables[owner.unit_type]
+        expect(tableName ~= nil, "未知的 unit type: " .. tostring(owner.unit_type))
         if tableName == nil then return end
 
         local keyed = cfg.keyed(tableName)
         expect(keyed ~= nil, tableName .. " 未导出")
         if keyed == nil then return end
 
-        expect(keyed[unit.unit_id] ~= nil,
-            string.format("%s 中不存在 unit_id=%d", tableName, unit.unit_id))
+        expect(keyed[value] ~= nil,
+            string.format("%s 中不存在 unit_id=%d", tableName, value))
     end,
 }
 ```
 
-第二个参数是**整行**的只读表，所以挂在单个字段上的规则也能按兄弟字段分支：例如把规则挂在 `unit_id` 上，然后读 `row.unit_type`。`cfg.keyed`、`cfg.table`、`cfg.enums` 等规则 API 与导出级规则完全相同。
+`cfg.keyed`、`cfg.table`、`cfg.enums` 等规则 API 与导出级规则完全相同。
 
 ### 失败怎么表现
 
@@ -308,7 +329,7 @@ ERROR|[lua] test.TbAsset[1].icon (.../data/asset.csv): units.lua: icon 不能为
 
 `tests/SmokeRules/` 里是一条只检查 API 可达的规则。
 
-`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张同时带 `path` 与 `#lua` 标签字段的表，配一条覆盖全部取值写法的规则；`rules/columns/` 里是列级规则（一条字符串检查，一条按枚举值去 `TbHero`/`TbMonster` 里查的条件规则）；`failing-rules/` 里是一条故意失败的导出级规则；`columns-failing/` 与 `columns-bad-type/` 则分别覆盖列级规则被拒绝的两种方式：
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张同时带 `path` 与 `#lua` 标签字段的表，配一条覆盖全部取值写法的规则；`rules/columns/` 里是列级规则（一条字符串检查，以及一条**写在 bean 内部**、按枚举值去 `TbHero`/`TbMonster` 里查的条件规则——它被两张表以不同字段名使用）；`failing-rules/` 里是一条故意失败的导出级规则；`columns-failing/` 与 `columns-bad-type/` 则分别覆盖列级规则被拒绝的两种方式：
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `

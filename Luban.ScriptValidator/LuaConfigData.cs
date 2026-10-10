@@ -155,6 +155,78 @@ internal sealed class LuaConfigData
     }
 
     /// <summary>
+    /// Follows a validator's path through a record's data, so a rule attached to a
+    /// field inside a bean can be handed the bean that contains it.
+    ///
+    /// Components that are not part of the value being walked are skipped, which is
+    /// what lets the caller pass the path as Luban built it: it starts with the
+    /// table name and may then hold the record's map key, neither of which is a
+    /// component of the data. A component that does apply but names something
+    /// absent ends the walk.
+    /// </summary>
+    internal static DType? Descend(DType root, IEnumerable<object> components)
+    {
+        DType? current = root;
+        foreach (object component in components)
+        {
+            if (current is null)
+            {
+                return null;
+            }
+
+            if (!TryStep(current, component, out DType? next))
+            {
+                continue;
+            }
+
+            current = next;
+        }
+
+        return current;
+    }
+
+    private static bool TryStep(DType current, object component, out DType? next)
+    {
+        switch (current)
+        {
+            case DBean bean when component is string fieldName:
+                next = bean.GetField(fieldName);
+                return true;
+            case DList list when component is int listIndex:
+                next = listIndex >= 0 && listIndex < list.Datas.Count ? list.Datas[listIndex] : null;
+                return true;
+            case DArray array when component is int arrayIndex:
+                next = arrayIndex >= 0 && arrayIndex < array.Datas.Count ? array.Datas[arrayIndex] : null;
+                return true;
+            case DSet set when component is int setIndex:
+                next = setIndex >= 0 && setIndex < set.Datas.Count ? set.Datas[setIndex] : null;
+                return true;
+            case DMap map when component is DType mapKey:
+                next = FindMapValue(map, mapKey);
+                return true;
+            default:
+                next = null;
+                return false;
+        }
+    }
+
+    private static DType? FindMapValue(DMap map, DType key)
+    {
+        foreach ((DType entryKey, DType value) in map.DataMap)
+        {
+            // The visitor pushes the very key instance it iterates, so the reference
+            // check covers the common case; the canonical form covers a key built
+            // from a different instance.
+            if (ReferenceEquals(entryKey, key) || CanonicalDataKey(entryKey) == CanonicalDataKey(key))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Returns the table's rows keyed by the selected index, mirroring the
     /// <c>DataMap</c> / <c>GetByXxx</c> / <c>Get(k1, k2)</c> APIs of Luban's
     /// generated code. A union index produces one nesting level per component.
