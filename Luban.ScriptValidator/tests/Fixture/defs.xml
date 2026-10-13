@@ -60,4 +60,28 @@
     <table name="TbMonster" value="Row" index="id" mode="map" input="monster.csv"/>
     <table name="TbUnit" value="UnitRow" index="id" mode="map" input="unit.csv"/>
     <table name="TbSquad" value="SquadRow" index="id" mode="map" input="squad.csv"/>
+
+    <!-- A tag on a container field lands on the element type, so these rules run
+         once per element with the element as their value. The container part of
+         the spelling carries the data separator, which is what lets the loader
+         split the cell at all. -->
+    <bean name="Member" sep=",">
+        <var name="member_type" type="UnitType"/>
+        <var name="member_id" type="int"/>
+    </bean>
+
+    <bean name="Roster">
+        <var name="id" type="int"/>
+        <!-- a tag inside the container's parentheses lands on the container: one
+             call per record with the whole list; a tag after the element type lands
+             on the element: one call per element -->
+        <var name="weights" type="(list#sep=,#lua=wholeRule),int#lua=weightRule"/>
+        <!-- element-tagged bean: one call per Member -->
+        <var name="scores" type="(list#sep=;),Member#lua=memberRule"/>
+        <!-- no element tag: the rule declared inside UnitInfo still runs once per
+             element, which is how a list of tagged beans is validated -->
+        <var name="members" type="(list#sep=;),UnitInfo"/>
+    </bean>
+
+    <table name="TbRoster" value="Roster" index="id" mode="map" input="roster.csv"/>
 </module>

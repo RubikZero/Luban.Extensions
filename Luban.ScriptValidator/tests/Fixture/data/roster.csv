@@ -1,0 +1,3 @@
+##var,id,weights,scores,members
+##type,int,"list,int","list,Member","list,UnitInfo"
+,1,"1,2,3","Hero,10;Monster,20","Hero,1003,3;Monster,2003,5"

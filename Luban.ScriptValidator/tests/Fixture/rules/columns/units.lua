@@ -47,3 +47,48 @@ register{
             string.format("%s has no unit_id=%d", tableName, value))
     end,
 }
+
+-- A tag inside the container's parentheses attaches to the container, so this one
+-- runs once per record and receives the whole collection.
+register{
+    name = "wholeRule",
+    type = "list",
+    validate = function(value, row, owner)
+        local parts = {}
+        for _, item in ipairs(value) do
+            parts[#parts + 1] = tostring(item)
+        end
+
+        print(string.format("[fx-col] wholeRule count=%d values=%s", #value, table.concat(parts, "|")))
+        expect(owner == row, "a field of the record is owned by the record")
+        expect(#value > 0, "the list must not be empty")
+    end,
+}
+
+-- A tag after the element type attaches to the element, so these two run once per
+-- element and receive the element as their value. The declaration describes the
+-- element, not the field: "int" for a list<int>, and the bean's name for a
+-- list<Member>.
+register{
+    name = "weightRule",
+    type = "int",
+    validate = function(value, row, owner)
+        print("[fx-col] weightRule " .. tostring(value))
+        expect(owner == row, "an element of a record's field is owned by the record")
+        expect(value > 0, "weight must be positive")
+    end,
+}
+
+register{
+    name = "memberRule",
+    type = "Member",
+    validate = function(value, row, owner)
+        -- The member is a bean, so its own fields are readable, and the whole
+        -- collection is reachable through the owner.
+        local unitType = cfg.enumName("UnitType", value.member_type) or value.member_type
+        print(string.format("[fx-col] memberRule %s:%s", tostring(unitType), tostring(value.member_id)))
+
+        expect(owner == row, "an element of a record's field is owned by the record")
+        expect(owner ~= nil and owner.scores ~= nil, "the owner still exposes the collection")
+    end,
+}

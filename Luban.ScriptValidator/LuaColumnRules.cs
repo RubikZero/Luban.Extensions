@@ -240,7 +240,7 @@ internal sealed class LuaColumnRules
     /// <paramref name="declared"/>. Anything Luban can name works, so a rule can
     /// declare a scalar (<c>string</c>, <c>int</c>, …), <c>bean</c>, <c>enum</c>,
     /// <c>collection</c>, the type exactly as the schema spells it
-    /// (<c>UnitInfo</c>, <c>UnitType</c>, <c>list,int</c>), or <c>any</c>.
+    /// (<c>UnitInfo</c>, <c>UnitType</c>), or <c>any</c>.
     /// </summary>
     internal static bool MatchesType(string declared, TType type, string? rawFieldType)
     {
@@ -270,11 +270,25 @@ internal sealed class LuaColumnRules
             return true;
         }
 
-        // A bean or enum field reports the generic "bean"/"enum" as its Luban type
-        // name, so the schema spelling is what lets a rule say which bean or enum
-        // it accepts.
-        string schemaType = BaseTypeName(rawFieldType);
-        return schemaType.Length > 0 && string.Equals(expected, schemaType, StringComparison.OrdinalIgnoreCase);
+        // A bean or enum type reports the generic "bean"/"enum" as its Luban type
+        // name, so the schema spelling is what lets a rule say which bean or enum it
+        // accepts.
+        IReadOnlyList<string> parts = TypeComponents(rawFieldType);
+        if (parts.Count == 0)
+        {
+            return false;
+        }
+
+        if (parts.Count > 1 && !string.Equals(parts[0], type.TypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            // A collection field carries its tags on the element type, so the value
+            // the rule receives is the element: the element's spelling is what the
+            // declaration has to match, not the whole field type.
+            return string.Equals(expected, parts[^1], StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(expected, string.Join(",", parts), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(expected, string.Join(";", parts), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The type as written in the schema, without its <c>#tag=value</c> part.</summary>
@@ -302,5 +316,43 @@ internal sealed class LuaColumnRules
         }
 
         return rawFieldType.Trim();
+    }
+
+    /// <summary>
+    /// Splits a schema type into its top-level components: <c>list,int</c> into
+    /// <c>list</c> and <c>int</c>, <c>map,string,UnitInfo</c> into three. Nested
+    /// groups stay together, so <c>(array#sep=;),int</c> keeps its container part
+    /// intact.
+    /// </summary>
+    internal static IReadOnlyList<string> TypeComponents(string? rawFieldType)
+    {
+        string baseType = BaseTypeName(rawFieldType);
+        if (baseType.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        List<string> parts = new();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < baseType.Length; index++)
+        {
+            switch (baseType[index])
+            {
+                case '(' or '[' or '{':
+                    depth++;
+                    break;
+                case ')' or ']' or '}':
+                    depth--;
+                    break;
+                case ',' or ';' when depth == 0:
+                    parts.Add(baseType[start..index].Trim());
+                    start = index + 1;
+                    break;
+            }
+        }
+
+        parts.Add(baseType[start..].Trim());
+        return parts;
     }
 }

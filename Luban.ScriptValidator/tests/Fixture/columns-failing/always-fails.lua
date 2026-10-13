@@ -3,13 +3,34 @@
 -- reported like any other validation failure: logged, recorded, the export still
 -- written, and exit code 1 only under the strict flag.
 --
--- unitRef is registered as well, and with the input type of the field it is
--- attached to, so that this run reaches the failure instead of stopping at a
+-- The other rules are registered as well, and with the type of the value they
+-- receive, so that this run reaches the failure instead of stopping at a
 -- registration that does not match the schema.
 
 register{
     name = "unitRef",
     type = "int",
+    validate = function(value, row, owner)
+    end,
+}
+
+register{
+    name = "wholeRule",
+    type = "list",
+    validate = function(value, row, owner)
+    end,
+}
+
+register{
+    name = "weightRule",
+    type = "int",
+    validate = function(value, row, owner)
+    end,
+}
+
+register{
+    name = "memberRule",
+    type = "Member",
     validate = function(value, row, owner)
     end,
 }

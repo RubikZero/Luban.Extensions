@@ -347,12 +347,14 @@ register("positiveWeight", "int", function(value, row, owner)
 end)
 ```
 
-The declared `type` is checked against the field it is attached to while the schema
-is compiled, so a rule cannot silently run on the wrong kind of field. Accepted
-values are `any`, the Luban type names (`int`, `long`, `float`, `double`, `bool`,
-`string`, `datetime`, `list`, `map`, …), the generic `bean`, `enum` and
-`collection`, and the type exactly as the schema spells it — `UnitInfo`, `UnitType`
-— which is how a rule says *which* bean it accepts.
+The declared `type` is checked against the value the rule will actually receive while
+the schema is compiled, so a rule cannot silently run on the wrong kind of field.
+Accepted values are `any`, the Luban type names (`int`, `long`, `float`, `double`,
+`bool`, `string`, `datetime`, `list`, `map`, …), the generic `bean`, `enum` and
+`collection`, and the type exactly as the schema spells it — `UnitInfo`, `UnitType` —
+which is how a rule says *which* bean it accepts. When the tag is written after a
+collection's element type, the element is what arrives, so declare the element's type
+(see [Collections](#collections) for container tags).
 
 Values arrive converted the same way they do for export rules: enums as their item
 name, `long` as a string so no digit is lost, and beans and collections as
@@ -375,12 +377,58 @@ neighbouring field without hard-coding where the bean sits.
 
 | The rule needs | Attach it to | Example |
 | --- | --- | --- |
-| Only the field's own value (not empty, in range, matches a pattern) | a field **inside the bean**, so it applies wherever the bean is used | `type="int#lua=positiveWeight"` |
-| The field's value plus its siblings | also a field inside the bean, read the siblings from `owner` | `type="int#lua=unitRef"` with `owner.unit_type` |
-| The whole bean, in one chosen place only | the field that **uses the bean**, so `value` is the bean | `type="UnitInfo#lua=unitRef"` |
+| The field's own value (not empty, in range, matches a pattern) | a field **inside the bean**, so it applies wherever the bean is used | `type="int#lua=positiveWeight"` |
+| The value plus its siblings | a field inside the bean, read the siblings from `owner` | `type="int#lua=unitRef"` with `owner.unit_type` |
+| The whole collection, once per record | **inside the container's parentheses** | `type="(list#sep=,#lua=totalCost),int"` |
+| Each element of a collection | after the element type | `type="(list#sep=,),int#lua=weightRule"` |
+| A whole bean, at one chosen place | the field that uses the bean, so `value` is the bean | `type="UnitInfo#lua=unitRule"` |
 
 Declaring a rule inside a bean means every use of that bean is checked and no use
 site can opt out; attaching it at a use site means the opposite.
+
+### Collections
+
+Where a tag lands is decided by where it is written, and the two positions can be
+combined on one field:
+
+```xml
+<var name="weights" type="(list#sep=,#lua=wholeRule),int#lua=weightRule"/>
+<!--                             container ^          ^ element -->
+```
+
+| Tag position | The rule receives | It runs |
+| --- | --- | --- |
+| inside the container's parentheses | the whole collection, as a read-only table | once per record |
+| after the element type | one element | once per element |
+
+Writing the tag outside the parentheses is **not** a container tag — Luban then takes
+`(list,int)` for a type name and rejects the field. The declaration follows the value
+that arrives: `type = "list"` for a container tag, and the **element's** type (`int`,
+`Member`) for an element tag. A declaration naming the container for an element tag
+is rejected, and the message says which value the rule would actually receive.
+
+Two details worth knowing:
+
+- The container part of the spelling has to carry the data separator
+  (`(list#sep=,),int`), otherwise the loader cannot split the cell at all and a
+  `list<int>` cell of `10,20,30` is read as a single int.
+- A rule attached to an element gets `owner` = the bean that holds the collection —
+  the record, for a field of the record, so `owner == row` — and the whole
+  collection stays reachable through it (`owner.weights`).
+
+A rule declared *inside* a bean also runs inside collections: a list of beans whose
+element type is not tagged still validates each element's own tagged fields, once per
+element.
+
+### Note: Luban recurses twice into a tagged bean element
+
+`DataValidatorVisitor.AcceptListLike` walks the elements once to run the element
+type's validators, recursing into each bean as it goes, and then walks them again
+because the element is a bean. So when a rule is attached to the **element type** of
+a collection whose elements are beans that declare rules of their own, those inner
+rules run **twice per element** and report twice; using only one of the two on a
+given bean type avoids it. That is Luban's behaviour rather than this extension's —
+every supported release has the same code.
 
 ### Looking other tables up
 
@@ -454,9 +502,11 @@ Note that Luban ignores a tag name it does not know, so a typo in the tag itself
 `tests/Fixture/` is a self-contained Luban project — an XML schema plus CSV data,
 no Excel and no game data — with one table of each shape, a table carrying both a
 `path`-tagged field and a `#lua`-tagged one, a rule that exercises every lookup
-form, `rules/columns/` with column rules (a string check, and a cross-table rule
-declared *inside* the bean that picks `TbHero` or `TbMonster` from an enum value and
-is used from two tables under different field names), `failing-rules/` with an
+form, `rules/columns/` with column rules (a string check; a cross-table rule declared
+*inside* the bean that picks `TbHero` or `TbMonster` from an enum value, used from two
+tables under different field names; and both collection positions — a container tag
+that sees the whole list once, an element tag on `list<int>` and on `list<Member>`,
+and a rule inside the bean of an untagged `list<UnitInfo>`), `failing-rules/` with an
 export rule that fails on purpose, and `columns-failing/` plus `columns-bad-type/`
 for the two ways a column rule is rejected on purpose:
 

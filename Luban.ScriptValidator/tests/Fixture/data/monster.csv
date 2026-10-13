@@ -1,3 +1,4 @@
 ##var,id,kind,level,name
 ##type,int,string,int,string
 ,2001,monster,1,monster-one
+,2003,monster,3,monster-three

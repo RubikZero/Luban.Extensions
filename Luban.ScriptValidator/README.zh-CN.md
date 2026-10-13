@@ -252,7 +252,7 @@ register("positiveWeight", "int", function(value, row, owner)
 end)
 ```
 
-声明的 `type` 会在编译 schema 时与被挂字段的实际类型比对，所以规则不可能悄悄跑在不对的字段上。可用的取值：`any`、Luban 的类型名（`int`、`long`、`float`、`double`、`bool`、`string`、`datetime`、`list`、`map` 等）、以及笼统的 `bean`、`enum`、`collection`，还有**按 schema 原样书写**的类型名——`UnitInfo`、`UnitType`，这是规则用来指明「我接受哪个 bean」的写法。
+声明的 `type` 会在编译 schema 时与实际会收到的值比对，所以规则不可能悄悄跑在不对的字段上。可用的取值：`any`、Luban 的类型名（`int`、`long`、`float`、`double`、`bool`、`string`、`datetime`、`list`、`map` 等）、以及笼统的 `bean`、`enum`、`collection`，还有**按 schema 原样书写**的类型名——`UnitInfo`、`UnitType`，这是规则用来指明「我接受哪个 bean」的写法。标签写在集合的**元素类型**之后时，收到的是元素，因此这里要写元素的类型（容器标签见[集合](#集合)）。
 
 值的转换与导出级规则一致：枚举到达的是**项名**、`long` 是字符串（不丢精度）、bean 与集合是只读表。详见[字段名与取值](#字段名与取值)。
 
@@ -272,9 +272,38 @@ end)
 | --- | --- | --- |
 | 只用字段自身的值（非空、范围、格式） | **bean 内部的字段**，于是处处生效 | `type="int#lua=positiveWeight"` |
 | 自身值 + 兄弟字段 | 同样放 bean 内部，兄弟字段从 `owner` 读 | `type="int#lua=unitRef"` 配 `owner.unit_type` |
-| 整个 bean，且只想在某处校验 | **使用该 bean 的字段**，此时 `value` 就是 bean | `type="UnitInfo#lua=unitRef"` |
+| 整个集合，每条记录一次 | **容器括号内** | `type="(list#sep=,#lua=totalCost),int"` |
+| 集合的每个元素 | 元素类型之后 | `type="(list#sep=,),int#lua=weightRule"` |
+| 整个 bean，且只想在某处校验 | **使用该 bean 的字段**，此时 `value` 就是 bean | `type="UnitInfo#lua=unitRule"` |
 
 写在 bean 内部意味着该 bean 的每一处使用都会被校验、使用处无法退出；挂在使用处则相反。
+
+### 集合
+
+标签落在哪一层，由它**写在哪里**决定；两种位置可以在同一个字段上并用：
+
+```xml
+<var name="weights" type="(list#sep=,#lua=wholeRule),int#lua=weightRule"/>
+<!--                            ^ 容器               ^ 元素 -->
+```
+
+| 标签位置 | 规则收到 | 触发次数 |
+| --- | --- | --- |
+| 容器括号内 | 整个集合（只读表） | 每条记录一次 |
+| 元素类型之后 | 单个元素 | 每个元素一次 |
+
+写在括号**之外**（`(list,int)#lua=x`）不是容器标签：Luban 会把 `(list,int)` 当成类型名并拒绝该字段。声明的类型要跟着「实际收到的值」走：容器标签写 `type = "list"`；元素标签写**元素**的类型（`int`、`Member`）。元素标签却声明了容器类型会被拒绝，并且报错会说明这条规则实际会收到什么值。
+
+两个细节：
+
+- 容器那部分必须带上数据分隔符（`(list#sep=,),int`），否则加载器根本无法拆分单元格，`list<int>` 的 `10,20,30` 会被读成一个 int。
+- 挂在元素上的规则，`owner` 是**持有该集合的那个 bean**（字段属于记录时就是记录本身，因此 `owner == row` 成立），整张集合可以通过它访问（`owner.weights`）。
+
+写在 bean **内部**的规则在集合里同样会执行：元素类型没挂标签的「bean 列表」，仍会逐个元素地校验元素自己被打标签的字段。
+
+### 注意：被挂标签的 bean 元素会被 Luban 递归两次
+
+`DataValidatorVisitor.AcceptListLike` 会先为了执行「元素类型的校验器」遍历一遍元素（过程中递归进 bean），随后又因为「元素是 bean」再遍历一遍。于是当规则挂在**元素类型**上、而该元素 bean 自己也有内部规则时，那些内部规则会**每个元素执行两次**、报两次；两者只用其一就不会出现。这是 Luban 自身的行为，不是本扩展的——支持范围内的每个版本都是同一份代码。
 
 ### 跨表查询
 
@@ -331,7 +360,7 @@ ERROR|[lua] test.TbAsset[1].icon (.../data/asset.csv): units.lua: icon 不能为
 
 `tests/SmokeRules/` 里是一条只检查 API 可达的规则。
 
-`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张同时带 `path` 与 `#lua` 标签字段的表，配一条覆盖全部取值写法的规则；`rules/columns/` 里是列级规则（一条字符串检查，以及一条**写在 bean 内部**、按枚举值去 `TbHero`/`TbMonster` 里查的条件规则——它被两张表以不同字段名使用）；`failing-rules/` 里是一条故意失败的导出级规则；`columns-failing/` 与 `columns-bad-type/` 则分别覆盖列级规则被拒绝的两种方式：
+`tests/Fixture/` 是一个自包含的 Luban 工程——XML schema + CSV 数据，不需要 Excel、也不需要任何游戏数据——每种表形态各一张，另有一张同时带 `path` 与 `#lua` 标签字段的表，配一条覆盖全部取值写法的规则；`rules/columns/` 里是列级规则（一条字符串检查；一条**写在 bean 内部**、按枚举值去 `TbHero`/`TbMonster` 里查的条件规则——它被两张表以不同字段名使用；以及集合的两种位置：容器标签一次拿到整张列表、`list<int>` 与 `list<Member>` 的元素标签逐元素触发、没挂元素标签的 `list<UnitInfo>` 里由 bean 内部规则逐元素校验）；`failing-rules/` 里是一条故意失败的导出级规则；`columns-failing/` 与 `columns-bad-type/` 则分别覆盖列级规则被拒绝的两种方式：
 
 ```powershell
 dotnet <LubanDir>\Luban.dll -t all -d bin `

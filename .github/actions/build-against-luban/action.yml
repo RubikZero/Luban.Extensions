@@ -165,13 +165,31 @@ runs:
         }
 
         # Column rules: their scripts are registered while the schema is compiled
-        # and called once per tagged field per record, so each of these markers has
-        # to appear exactly once. Together they prove that a rule reached the table
-        # it looks up (TbUnit row 1 is a Hero, row 2 a Monster), and that the rule
-        # declared inside the bean works in both places the bean is used: TbSquad
-        # holds it under a different field name, and only the owner argument tells
-        # the rule which unit type it is looking at.
-        foreach ($marker in @('[fx-col] iconName sword', '[fx-col] unitRef Hero:1001', '[fx-col] unitRef Monster:2001', '[fx-col] unitRef Hero:1002')) {
+        # and called once per tagged value, so each of these markers has to appear
+        # exactly once. Together they prove that a rule reached the table it looks
+        # up (TbUnit row 1 is a Hero, row 2 a Monster), that the rule declared inside
+        # the bean works in both places the bean is used (TbSquad holds it under a
+        # different field name, and only the owner argument tells the rule which unit
+        # type it is looking at), that a tag inside a container's parentheses runs
+        # once per record with the whole collection (wholeRule), that a tag after the
+        # element type runs once per element (weightRule on a list<int>, memberRule
+        # on a list<Member>), and that the rule inside UnitInfo still fires once per
+        # element of an untagged list of beans.
+        $markers = @(
+          '[fx-col] iconName sword',
+          '[fx-col] unitRef Hero:1001',
+          '[fx-col] unitRef Monster:2001',
+          '[fx-col] unitRef Hero:1002',
+          '[fx-col] unitRef Hero:1003',
+          '[fx-col] unitRef Monster:2003',
+          '[fx-col] wholeRule count=3 values=1|2|3',
+          '[fx-col] weightRule 1',
+          '[fx-col] weightRule 2',
+          '[fx-col] weightRule 3',
+          '[fx-col] memberRule Hero:10',
+          '[fx-col] memberRule Monster:20'
+        )
+        foreach ($marker in $markers) {
           $markerCount = ([regex]::Matches($output, [regex]::Escape($marker))).Count
           if ($markerCount -ne 1) {
             throw "The column rules produced '$marker' $markerCount time(s) instead of once."
@@ -181,7 +199,7 @@ runs:
         # One file per table in the fixture, none of them empty: this is what
         # proves the postprocessor passed the export through.
         $exported = @(Get-ChildItem $dataDir -Recurse -File -Filter '*.bytes' -ErrorAction SilentlyContinue)
-        foreach ($table in @('tbasset', 'tbhero', 'tbmonster', 'tbmulti', 'tbone', 'tbsingle', 'tbsquad', 'tbunion', 'tbunit')) {
+        foreach ($table in @('tbasset', 'tbhero', 'tbmonster', 'tbmulti', 'tbone', 'tbroster', 'tbsingle', 'tbsquad', 'tbunion', 'tbunit')) {
           $file = $exported | Where-Object { $_.Name -like "*$table*" } | Select-Object -First 1
           if (-not $file) {
             throw "The export wrote no file for $table. Exported: $($exported.Name -join ', ')"

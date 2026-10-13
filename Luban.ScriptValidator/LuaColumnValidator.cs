@@ -80,14 +80,37 @@ public sealed class LuaColumnValidator : DataValidatorBase
 
         if (!LuaColumnRules.MatchesType(rule.TypeName, type, field?.Type))
         {
-            string schemaType = LuaColumnRules.BaseTypeName(field?.Type);
-            string actual = schemaType.Length == 0 ? type.TypeName : $"{schemaType} ({type.TypeName})";
             throw new ArgumentException(
                 $"field:{fieldName} 的 #{LuaRuleFiles.TagName}={requested} 声明输入类型 '{rule.TypeName}'（{rule.File}），" +
-                $"但字段的实际类型是 '{actual}'");
+                $"但这条规则实际收到的值类型是 '{DescribeValueType(type, field?.Type)}'");
         }
 
         _rule = rule;
+    }
+
+    /// <summary>
+    /// Names what the rule will actually receive. A collection field carries its
+    /// tags on the element type, so what a rule declares has to describe the
+    /// element, not the field.
+    /// </summary>
+    private static string DescribeValueType(TType type, string? rawFieldType)
+    {
+        IReadOnlyList<string> parts = LuaColumnRules.TypeComponents(rawFieldType);
+        if (parts.Count == 0)
+        {
+            return type.TypeName;
+        }
+
+        bool onElement = parts.Count > 1
+            && !string.Equals(parts[0], type.TypeName, StringComparison.OrdinalIgnoreCase);
+        if (onElement)
+        {
+            return $"{parts[^1]} ({type.TypeName})，因为标签落在容器的元素上，声明要写元素类型";
+        }
+
+        return parts.Count == 1
+            ? $"{parts[0]} ({type.TypeName})"
+            : $"{string.Join(",", parts)} ({type.TypeName})";
     }
 
     public override void Validate(DataValidatorContext ctx, TType type, DType data)
@@ -120,7 +143,9 @@ public sealed class LuaColumnValidator : DataValidatorBase
     /// The bean that contains the field being validated, which lets a rule declared
     /// inside a bean read its sibling fields without knowing where that bean is
     /// used. For a field of the record itself this is the record, so the rule sees
-    /// the same table as its <c>row</c> argument.
+    /// the same table as its <c>row</c> argument — and that includes a rule
+    /// attached to a collection's element type, whose owner is the bean holding the
+    /// collection rather than the collection itself.
     /// </summary>
     private static DType? ResolveOwner(Record? record)
     {
@@ -135,17 +160,25 @@ public sealed class LuaColumnValidator : DataValidatorBase
             return record.Data;
         }
 
-        // The path is a stack, and its last component is the field being validated:
-        // drop that one and walk the rest from the record. The first component is
-        // the table name, which is not part of the data.
         List<object> components = visitor.Path.Reverse().ToList();
         if (components.Count == 0)
         {
             return record.Data;
         }
 
-        components.RemoveAt(components.Count - 1);
-        return LuaConfigData.Descend(record.Data, components.Skip(1)) ?? record.Data;
+        // The path ends with the field being validated, or — when the tag sits on a
+        // collection's element type — with the element's index or map key. Step back
+        // over the indices and keys (the visitor pushes ints and DType keys for
+        // those, and strings for fields), then walk everything before the field:
+        // that lands on the bean containing the field.
+        int fieldIndex = components.Count - 1;
+        while (fieldIndex > 0 && components[fieldIndex] is not string)
+        {
+            fieldIndex--;
+        }
+
+        IEnumerable<object> ownerPath = components.Skip(1).Take(Math.Max(0, fieldIndex - 1));
+        return LuaConfigData.Descend(record.Data, ownerPath) ?? record.Data;
     }
 
     private static string DescribeLocation(Record? record)
