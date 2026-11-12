@@ -6,6 +6,8 @@
 
 规则分两种：**导出级规则**每次导出对整库检查一次；**列级规则**由 schema 用 `#lua=<名字>` 标签挂在单个字段上，逐条记录执行。
 
+规则作者请从 [LuaRules.md](LuaRules.md) 开始：它讲两种规则怎么写，并列出 DLL 暴露给 Lua 的全部方法。
+
 ## 安装
 
 先用 `Directory.Build.props.example` 生成不受 git 跟踪的 `Directory.Build.props`，并把 `LubanDir` 指向你的 Luban 安装目录，详见[仓库说明](../README.zh-CN.md#初始化)。然后构建并部署全部扩展：

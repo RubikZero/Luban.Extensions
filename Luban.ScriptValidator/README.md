@@ -10,6 +10,9 @@ Rules come in two kinds: **export rules** that check the whole database once per
 export, and **column rules** that a schema attaches to a single field with the
 `#lua=<name>` tag and that run for every record.
 
+Rule authors should start with [LuaRules.md](LuaRules.md) (Chinese): it covers how to
+write both kinds of rule and lists every method the DLL exposes to Lua.
+
 ## Installation
 
 Create the untracked `Directory.Build.props` from `Directory.Build.props.example`
