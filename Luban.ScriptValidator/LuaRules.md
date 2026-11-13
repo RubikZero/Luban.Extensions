@@ -344,6 +344,70 @@ register("weightsNotEmpty", "list", function(value, row, owner)
 end)
 ```
 
+### 8.7 导出级规则：让消息带上位置
+
+导出级规则的 `fail` / `expect` **不会**自动附带行位置（见 §4.3 与 §7），所以要自己拼。推荐在文件顶部写一个 helper，每条消息都过它：
+
+```lua
+local TABLE = "TbLevel"
+local KEY = "id"                       -- 这张表的主键字段名
+
+local function where(row)
+    return string.format("%s[%s=%s] %s",
+        TABLE, KEY, tostring(row[KEY]), tostring(row.__source))
+end
+
+function validate()
+    for _, row in ipairs(cfg.table(TABLE)) do
+        expect(row.reward_id ~= nil, where(row) .. ": reward_id 不能为空")
+        expect(row.weight > 0,      where(row) .. ": weight 必须为正数")
+    end
+end
+```
+
+失败输出（实测形态）：
+
+```
+ERROR|[lua validator] .../rules/level.lua: TbLevel[id=5] .../data/level.csv: weight 必须为正数
+```
+
+`row.__source` 只到"文件 / sheet"这一级（CSV 是文件路径，Excel 是 `sheet名@文件名`），**没有行号**；所以把主键（或能唯一定位的字段）一起打出来。
+
+如果不想把主键字段名写死，可以按表名生成 checker——注意它依赖 `cfg.tableInfo(表).index`，**只对单索引表可靠**：
+
+```lua
+local function makeChecker(tableName)
+    local info = cfg.tableInfo(tableName)
+    local keyField = info and info.index or nil   -- 例如 "id"
+
+    return function(row, condition, message)
+        if condition then return end
+        local key = keyField and row[keyField] or nil
+        fail(string.format("%s[%s] %s: %s",
+            tableName, tostring(key), tostring(row.__source), message))
+    end
+end
+
+local checkLevel = makeChecker("TbLevel")
+
+function validate()
+    for _, row in ipairs(cfg.table("TbLevel")) do
+        checkLevel(row, row.weight > 0, "weight 必须为正数")
+    end
+end
+```
+
+对**联合索引**（`index="kind+level"`）或**多个独立索引**（`index="id,name"`）的表，`info.index` 只是按字段名拼起来的字符串，不能当字段名用；这类表请写死主键，或直接打印多个字段：
+
+```lua
+local function whereUnion(row)
+    return string.format("TbUnion[kind=%s,level=%s] %s",
+        tostring(row.kind), tostring(row.level), tostring(row.__source))
+end
+```
+
+**列级规则不需要这些**：它的失败行自带记录路径与来源文件（`[lua] test.TbAsset[1].icon (...)`），再拼一次只会重复。
+
 ---
 
 ## 9. 性能提示
