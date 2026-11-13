@@ -129,12 +129,12 @@ Luban 在遍历字段时会**跳过值为 `null` 的字段**，所以可空列�
 
 | 方法 | 说明 |
 | --- | --- |
-| `cfg.tables["完整表名"]` | 该表全部记录（只读数组），键是带模块的完整表名，如 `game.TbLevel` |
-| `cfg.table("表名")` | 同上，接受短名或完整名；表不存在返回 `nil` |
+| `cfg.tables["定义全名"]` | 该表全部记录（只读数组）。键是 schema 里的**定义全名**（模块名 + 表名，**不含** top module）：模块 `game` 里的 `TbLevel` 用 `cfg.tables["game.TbLevel"]`；定义在空模块下的表就用裸表名，如 `cfg.tables["TbMissionData"]`。写成别的样子（例如加上 top module 前缀，或给有模块的表写裸名）一律返回 `nil` |
+| `cfg.table("表名")` | 同上，但接受三种写法：裸表名、定义全名、带 top module 的完整名（`TbLevel`、`game.TbLevel`、`cfg.game.TbLevel` 都行）；表不存在返回 `nil` |
 | `cfg.keyed("表名" [, "字段", ...])` | **索引 → 行** 的只读映射。单键表直接用 `keyed[10001]`；联合索引逐层嵌套；表有多个独立索引时必须指定字段名，否则返回 `nil` 并打一条警告 |
 | `cfg.singleton("表名")` | `mode="one"` 单例表的那一行；不是单例则返回 `nil` 并警告 |
 | `cfg.tableInfo("表名")` | 表的元信息（见下）；表不存在返回 `nil` |
-| `cfg.ref("表名", key...)` | 按索引取行，等价于 `cfg.keyed(...)` 的便捷写法 |
+| `cfg.ref("表名", key...)` | 按索引取行的便捷写法。单键表传一个值；联合索引按字段顺序传全部值；表有多个独立索引时无法用单值定位（返回 `nil` 并警告），改用 `cfg.keyed("表名", "字段")` |
 | `cfg.ref(row, "字段名")` | 跟随该字段声明的 `#ref` 取被引用的行；没声明或找不到返回 `nil` |
 
 `cfg.tableInfo` 返回：
@@ -146,6 +146,11 @@ unionIndex, multiKey
 ```
 
 `keyed` 的键同时支持字符串和数字写法（`keyed[10001]` 与 `keyed["10001"]` 等价）；表不存在、索引缺失或有歧义时返回 `nil`。
+
+关于表名写法，记住两条：
+
+- `cfg.table` / `cfg.keyed` / `cfg.singleton` / `cfg.tableInfo` / `cfg.ref("表名", ...)` 都接受三种写法（裸名、定义全名、带 top module 的完整名）。
+- **只有 `cfg.tables[...]` 这种直接索引必须写定义全名**，也就是 `cfg.tableInfo(表).name` 返回的那个值。`cfg.tableInfo(...).fullName` 是**带 top module** 的名字（日志里显示的就是它），拿它去索引 `cfg.tables` 会得到 `nil`。
 
 ### 4.2 枚举
 
@@ -167,7 +172,10 @@ unionIndex, multiKey
 | `fail(message)` | 记录一条校验失败，继续执行 |
 | `expect(condition, message)` | 条件为假时记录一条校验失败，继续执行 |
 
-失败会被汇总成 ERROR 日志（带记录位置和来源文件），并在结束时决定退出码（见第 7 节）。
+失败会被汇总成 ERROR 日志并在结束时决定退出码（见第 7 节）。日志里自动带哪些信息，取决于规则种类：
+
+- **列级规则**：自动带「记录路径 + 来源文件 + 规则文件」，不必自己拼位置。
+- **导出级规则**：只有「规则文件」，**不附带任何行/记录信息**；需要定位时请自己把 `row.__source`、`row.id` 等写进消息。
 **不要用 `print` 报告问题**：`print` 只是普通输出，不会让校验失败。
 
 ### 4.4 行对象
@@ -176,10 +184,10 @@ unionIndex, multiKey
 
 | 键 | 说明 |
 | --- | --- |
-| `row.__source` | 该行的来源位置（文件/sheet） |
+| `row.__source` | 该行的来源位置：CSV 是文件路径，Excel 是 `sheet名@文件名`（如 `节点@G_关卡.xlsx`） |
 | `row.__autoIndex` | 记录在表中的序号（从 0 开始） |
-| `row.__type` | 完整类型名（带顶层模块） |
-| `row._type` | 类型名 |
+| `row.__type` | 具体类型的完整名（带 top module），如 `cfgmod.game.Holder` |
+| `row._type` | 恒为字符串 `"bean"`，不要用它判断具体类型 |
 
 用 `pairs(row)` 遍历字段时记得排除以上 4 个键（它们以 `_`/`__` 开头）。
 
@@ -224,13 +232,20 @@ unionIndex, multiKey
 
 ## 7. 失败、日志与退出码
 
-一条失败长这样：
+**列级规则**的失败会自动带上记录位置、来源文件和规则文件：
 
 ```
 ERROR|[lua] test.TbAsset[1].icon (.../data/asset.csv): units.lua: icon 不能为空
 ```
 
-- 前半段是记录位置与来源文件，后半段是规则文件与消息。
+**导出级规则**没有记录上下文，日志里只有规则文件与消息，所以位置要自己写进消息（`row.__source`、`row.id` 等）；结束时还会多打一行汇总：
+
+```
+ERROR|[lua validator] .../rules/level.lua: TbLevel id=5: reward_id 不能为空
+ERROR|[lua validator] 1 error(s) in 1 rule file(s).
+```
+
+- 两种规则的日志前缀不同：列级是 `[lua]`，导出级是 `[lua validator]`。
 - 校验失败**不会**让 Luban 立即中断：产物照常写出。
 - 退出码由 Luban 的严格模式开关决定：
   - 4.x：`--validationFailAsError`
